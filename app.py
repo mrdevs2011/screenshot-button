@@ -479,108 +479,79 @@ PAGE = r"""<!doctype html>
 <html lang="uz">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#0a0a0a">
 <title>·</title>
 <style>
 :root{color-scheme:dark}
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:#0a0a0a;color:#e5e5e5;font:13px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#0a0a0a;color:#e5e5e5;font:13px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;-webkit-tap-highlight-color:transparent;overflow:hidden}
 body{
-  min-height:100dvh;
-  display:flex;flex-direction:column;
-  padding:0;
-  padding-top:env(safe-area-inset-top);
-  padding-bottom:env(safe-area-inset-bottom);
-  padding-left:env(safe-area-inset-left);
-  padding-right:env(safe-area-inset-right);
+  min-height:100dvh;display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
-header{
-  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
-  padding:8px 10px;
-  border-bottom:1px solid #222;
-  background:#0a0a0a;
-  flex-shrink:0;
+#login{
+  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:#0a0a0a;z-index:50;padding:16px;
 }
-input{
-  flex:1;min-width:80px;max-width:200px;
-  height:36px;width:36px;
-  padding:0 10px;
-  background:#111;color:#e5e5e5;
-  border:1px solid #333;border-radius:0;
-  outline:none;font:inherit;
+#login .box{display:flex;gap:0;width:100%;max-width:280px}
+#login input{
+  flex:1;height:40px;padding:0 12px;border:1px solid #333;border-radius:0;
+  background:#111;color:#e5e5e5;font:inherit;outline:none;
 }
-input:focus{border-color:#666}
-button,.btn{
-  width:36px;height:36px;min-width:36px;padding:0;
-  border:1px solid #333;border-radius:0;
-  background:#111;color:#e5e5e5;
-  font:inherit;font-size:14px;font-weight:600;
-  cursor:pointer;user-select:none;
-  display:inline-flex;align-items:center;justify-content:center;
-  text-decoration:none;flex-shrink:0;
+#login input:focus{border-color:#666}
+#login button{
+  width:40px;height:40px;border:1px solid #e5e5e5;border-radius:0;
+  background:#e5e5e5;color:#0a0a0a;font:inherit;font-weight:700;cursor:pointer;
 }
-button:disabled{opacity:.35;cursor:not-allowed}
-#go,#shot{background:#e5e5e5;color:#0a0a0a;border-color:#e5e5e5}
-#shot{font-size:16px}
-#logout{color:#888;border-color:#2a2a2a;background:transparent}
-#logout:hover{color:#f87171;border-color:#7f1d1d}
-#msg{min-height:0;font-size:11px;color:#555;text-align:center;padding:0 8px}
-#msg.err{color:#f87171;padding:4px 8px}
-main{
-  flex:1;min-height:0;
-  display:flex;flex-direction:column;
-  padding:8px 10px 10px;
-  gap:6px;
-}
-#stage{display:none;flex:1;min-height:0;flex-direction:column}
+#stage{display:none;flex:1;min-height:0;width:100%;padding:0}
 .frame{
-  flex:1;min-height:120px;
-  width:100%;
-  border:1px solid #333;
-  background:#000;
-  overflow:hidden;
-  position:relative;
-  touch-action:none;
-  cursor:grab;
+  width:100%;height:100%;
+  background:#000;overflow:hidden;position:relative;
+  touch-action:none;cursor:grab;
 }
 .frame.drag{cursor:grabbing}
 .frame img{
   position:absolute;left:50%;top:50%;
-  transform-origin:center center;
-  max-width:none;
+  transform-origin:center center;max-width:none;
   user-select:none;-webkit-user-drag:none;pointer-events:none;
 }
-.spacer{flex:1;min-width:4px}
-@media (min-width:768px){
-  header{padding:10px 14px;gap:8px}
-  button,.btn,input{height:40px}
-  button,.btn{width:40px;min-width:40px}
-  input{max-width:240px}
-  main{padding:12px 14px 14px}
+#fab{
+  display:none;
+  position:fixed;
+  width:56px;height:56px;
+  border:1px solid #e5e5e5;border-radius:0;
+  background:#e5e5e5;color:#0a0a0a;
+  font-size:22px;font-weight:700;line-height:1;
+  cursor:grab;user-select:none;z-index:40;
+  box-shadow:0 4px 24px rgba(0,0,0,.45);
+  touch-action:none;
+  align-items:center;justify-content:center;
+}
+#fab:active,#fab.moving{cursor:grabbing}
+#fab:disabled{opacity:.4;cursor:wait}
+#fab.busy{opacity:.5}
+#msg{
+  position:fixed;left:0;right:0;bottom:calc(12px + env(safe-area-inset-bottom));
+  text-align:center;font-size:11px;color:#f87171;pointer-events:none;z-index:45;
 }
 </style>
 </head>
 <body>
-<header>
-  <input id="token" type="password" placeholder="parol" autocomplete="current-password" enterkeyhint="go" style="display:none">
-  <button type="button" id="go" title="Enter" style="display:none">→</button>
-  <button type="button" id="shot" title="Space / Enter / S" disabled>●</button>
-  <button type="button" id="zout" title="-" disabled>−</button>
-  <button type="button" id="zfit" title="fit" disabled>⊡</button>
-  <button type="button" id="zin" title="+" disabled>+</button>
-  <a class="btn" id="dl" download title="Download" style="pointer-events:none;opacity:.35">↓</a>
-  <span class="spacer"></span>
-  <button type="button" id="logout" title="Esc / L" style="display:none">✕</button>
-</header>
+<div id="login">
+  <div class="box">
+    <input id="token" type="password" placeholder="parol" autocomplete="current-password" enterkeyhint="go">
+    <button type="button" id="go" title="Enter">→</button>
+  </div>
+</div>
+<div id="stage"><div class="frame" id="frame"><img id="img" alt=""></div></div>
+<button type="button" id="fab" title="Skrinshot">●</button>
 <div id="msg"></div>
-<main>
-  <div id="stage"><div class="frame" id="frame"><img id="img" alt=""></div></div>
-</main>
 <script>
 const $ = (id) => document.getElementById(id);
 const SKEY = "shot_session_v3";
+const POSKEY = "shot_fab_pos";
 const IDLE_MS = 5 * 60 * 1000;
 const base = (location.pathname.replace(/\/+$/, "") || "") + "/";
 let session = null, blobUrl = null, idleTimer = null, pingTimer = null, busy = false, lastAct = 0;
@@ -588,6 +559,11 @@ let scale = 1, tx = 0, ty = 0, natW = 0, natH = 0, fit = 1;
 let dragging = false, lx = 0, ly = 0;
 let pins = new Map();
 let hasImg = false;
+
+/* FAB drag */
+const fab = $("fab");
+let fabX = 0, fabY = 0, fabDrag = false, fabMoved = false, fabSx = 0, fabSy = 0, fabOx = 0, fabOy = 0;
+let longT = null;
 
 try {
   const raw = sessionStorage.getItem(SKEY);
@@ -600,8 +576,12 @@ try {
     }
   }
 } catch (e) {}
+try {
+  const p = JSON.parse(localStorage.getItem(POSKEY) || "null");
+  if (p && typeof p.x === "number" && typeof p.y === "number") { fabX = p.x; fabY = p.y; }
+} catch (e) {}
 
-function setMsg(t, err) { $("msg").textContent = t || ""; $("msg").className = err ? "err" : ""; }
+function setMsg(t) { $("msg").textContent = t || ""; setTimeout(() => { if ($("msg").textContent === t) $("msg").textContent = ""; }, 2500); }
 function persist() {
   try {
     if (session) sessionStorage.setItem(SKEY, JSON.stringify({ session, lastAct }));
@@ -627,22 +607,38 @@ function armIdle() {
     else armIdle();
   }, Math.max(500, left));
 }
+function placeFab(x, y) {
+  const m = 8;
+  const w = fab.offsetWidth || 56, h = fab.offsetHeight || 56;
+  const maxX = window.innerWidth - w - m;
+  const maxY = window.innerHeight - h - m;
+  fabX = Math.max(m, Math.min(maxX, x));
+  fabY = Math.max(m, Math.min(maxY, y));
+  fab.style.left = fabX + "px";
+  fab.style.top = fabY + "px";
+  fab.style.right = "auto";
+  fab.style.bottom = "auto";
+}
+function defaultFabPos() {
+  const w = fab.offsetWidth || 56, h = fab.offsetHeight || 56;
+  placeFab(window.innerWidth - w - 20, window.innerHeight - h - 28);
+}
+function saveFabPos() {
+  try { localStorage.setItem(POSKEY, JSON.stringify({ x: fabX, y: fabY })); } catch (e) {}
+}
 function refresh() {
   const ok = !!session;
-  $("token").style.display = ok ? "none" : "";
-  $("go").style.display = ok ? "none" : "";
-  $("logout").style.display = ok ? "" : "none";
-  $("shot").disabled = !ok || busy;
-  $("zout").disabled = !hasImg;
-  $("zfit").disabled = !hasImg;
-  $("zin").disabled = !hasImg;
-  const dl = $("dl");
-  if (hasImg && blobUrl) {
-    dl.style.pointerEvents = "";
-    dl.style.opacity = "1";
-  } else {
-    dl.style.pointerEvents = "none";
-    dl.style.opacity = ".35";
+  $("login").style.display = ok ? "none" : "flex";
+  fab.style.display = ok ? "flex" : "none";
+  fab.disabled = !ok || busy;
+  fab.classList.toggle("busy", busy);
+  if (ok) {
+    if (!fabX && !fabY) defaultFabPos();
+    else placeFab(fabX, fabY);
+  }
+  if (!ok) {
+    hasImg = false;
+    $("stage").style.display = "none";
   }
 }
 
@@ -659,9 +655,7 @@ function applyTransform() {
   img.style.transform = "translate(-50%,-50%) translate(" + tx + "px," + ty + "px) scale(" + s + ")";
 }
 function resetView() {
-  fit = calcFit();
-  scale = 1; tx = 0; ty = 0;
-  applyTransform();
+  fit = calcFit(); scale = 1; tx = 0; ty = 0; applyTransform();
 }
 function zoomBy(factor, cx, cy) {
   if (!hasImg) return;
@@ -696,8 +690,7 @@ $("frame").addEventListener("pointermove", (e) => {
   if (!dragging || e.pointerType === "touch") return;
   if (scale <= 1) return;
   tx += e.clientX - lx; ty += e.clientY - ly;
-  lx = e.clientX; ly = e.clientY;
-  applyTransform();
+  lx = e.clientX; ly = e.clientY; applyTransform();
 });
 function endDrag() { dragging = false; $("frame").classList.remove("drag"); }
 $("frame").addEventListener("pointerup", endDrag);
@@ -726,12 +719,60 @@ $("frame").addEventListener("touchmove", (e) => {
   }
 }, { passive: false });
 $("frame").addEventListener("touchend", (e) => { for (const t of e.changedTouches) pins.delete(t.identifier); });
-$("frame").addEventListener("touchcancel", (e) => { for (const t of e.changedTouches) pins.delete(t.identifier); });
+$("frame").addEventListener("dblclick", () => {
+  if (!blobUrl) return;
+  const a = document.createElement("a");
+  a.href = blobUrl; a.download = "skrinshot_" + Date.now() + ".jpg"; a.click();
+});
 
-$("zin").onclick = () => { zoomBy(1.25); touch(); };
-$("zout").onclick = () => { zoomBy(1 / 1.25); touch(); };
-$("zfit").onclick = () => { resetView(); touch(); };
-window.addEventListener("resize", () => { if (hasImg) resetView(); });
+function onFabDown(e) {
+  if (busy) return;
+  e.preventDefault();
+  const pt = e.touches ? e.touches[0] : e;
+  fabDrag = true; fabMoved = false;
+  fabSx = pt.clientX; fabSy = pt.clientY;
+  fabOx = fabX; fabOy = fabY;
+  fab.classList.add("moving");
+  longT = setTimeout(() => {
+    longT = null;
+    if (!fabMoved) doLogout(false);
+  }, 900);
+  touch();
+}
+function onFabMove(e) {
+  if (!fabDrag) return;
+  const pt = e.touches ? e.touches[0] : e;
+  const dx = pt.clientX - fabSx, dy = pt.clientY - fabSy;
+  if (Math.abs(dx) > 6 || Math.abs(dy) > 6) {
+    fabMoved = true;
+    if (longT) { clearTimeout(longT); longT = null; }
+  }
+  placeFab(fabOx + dx, fabOy + dy);
+}
+function onFabUp(e) {
+  if (!fabDrag) return;
+  fabDrag = false;
+  fab.classList.remove("moving");
+  if (longT) { clearTimeout(longT); longT = null; }
+  if (fabMoved) saveFabPos();
+  else if (!busy) doShot();
+}
+fab.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "touch") return;
+  fab.setPointerCapture(e.pointerId);
+  onFabDown(e);
+});
+fab.addEventListener("pointermove", (e) => { if (e.pointerType !== "touch") onFabMove(e); });
+fab.addEventListener("pointerup", (e) => { if (e.pointerType !== "touch") onFabUp(e); });
+fab.addEventListener("pointercancel", (e) => { if (e.pointerType !== "touch") onFabUp(e); });
+fab.addEventListener("touchstart", onFabDown, { passive: false });
+fab.addEventListener("touchmove", (e) => { e.preventDefault(); onFabMove(e); }, { passive: false });
+fab.addEventListener("touchend", onFabUp);
+fab.addEventListener("touchcancel", onFabUp);
+window.addEventListener("resize", () => {
+  if (session) placeFab(fabX || 0, fabY || 0);
+  if (hasImg) resetView();
+});
 
 async function api(path, opts = {}) {
   const headers = Object.assign({ "ngrok-skip-browser-warning": "1" }, opts.headers || {});
@@ -741,7 +782,7 @@ async function api(path, opts = {}) {
 async function doLogin() {
   const v = $("token").value.trim();
   if (!v || busy) return;
-  busy = true; $("go").disabled = true; setMsg("");
+  busy = true; $("go").disabled = true;
   try {
     const r = await fetch(base + "api/login", {
       method: "POST",
@@ -750,9 +791,8 @@ async function doLogin() {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || String(r.status));
     session = j.session; $("token").value = "";
-    busy = false;
-    touch(); startPing(); refresh();
-  } catch (e) { setMsg("·", true); }
+    busy = false; touch(); startPing(); refresh();
+  } catch (e) { setMsg("·"); }
   finally { busy = false; $("go").disabled = false; refresh(); }
 }
 function startPing() {
@@ -766,7 +806,6 @@ function startPing() {
 async function doLogout(silent) {
   try { if (session) await api("api/logout", { method: "POST" }); } catch (e) {}
   clearSession();
-  if (!silent) setMsg("");
   hasImg = false;
   $("stage").style.display = "none";
   refresh();
@@ -775,7 +814,7 @@ async function doShot() {
   if (!session) return;
   if (Date.now() - lastAct >= IDLE_MS) { doLogout(true); return; }
   if (busy) return;
-  busy = true; $("shot").disabled = true; setMsg(""); touch();
+  busy = true; refresh(); touch();
   try {
     const r = await api("api/screenshot", { method: "POST" });
     if (r.status === 401) { clearSession(); return; }
@@ -786,24 +825,19 @@ async function doShot() {
     const blob = await r.blob();
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     blobUrl = URL.createObjectURL(blob);
-    const name = "skrinshot_" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
     const img = $("img");
     img.onload = () => {
       natW = img.naturalWidth; natH = img.naturalHeight;
       hasImg = true;
-      $("stage").style.display = "flex";
+      $("stage").style.display = "block";
       resetView();
-      refresh();
     };
     img.src = blobUrl;
-    $("dl").href = blobUrl; $("dl").download = name;
     touch();
-  } catch (e) { setMsg("·", true); }
+  } catch (e) { setMsg("·"); }
   finally { busy = false; refresh(); }
 }
 $("go").onclick = doLogin;
-$("logout").onclick = () => doLogout(false);
-$("shot").onclick = doShot;
 $("token").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doLogin(); } });
 ["pointerdown", "keydown", "touchstart"].forEach((ev) => {
   document.addEventListener(ev, () => { if (session) touch(); }, { passive: true });
@@ -813,9 +847,9 @@ document.addEventListener("keydown", (e) => {
   const typing = tag === "INPUT" || tag === "TEXTAREA";
   if (e.key === "Escape") { e.preventDefault(); if (session) doLogout(false); return; }
   if (typing) return;
-  if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (session) doShot(); }
-  if (e.key === "s" || e.key === "S") { e.preventDefault(); if (session) doShot(); }
-  if (e.key === "l" || e.key === "L") { e.preventDefault(); if (session) doLogout(false); }
+  if (e.key === " " || e.key === "Enter" || e.key === "s" || e.key === "S") {
+    e.preventDefault(); if (session) doShot();
+  }
   if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomBy(1.25); }
   if (e.key === "-" || e.key === "_") { e.preventDefault(); zoomBy(1 / 1.25); }
   if (e.key === "0") { e.preventDefault(); resetView(); }
