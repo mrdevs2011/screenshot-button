@@ -219,29 +219,17 @@ input{flex:1;padding:12px;background:#111;color:#eee;border:1px solid #333}
 <body>
 <h1>Kompyuter skrinshoti</h1>
 <div class="row" id="tokenRow"><input id="token" type="password" placeholder="Token" autocomplete="off"><button class="small" id="save">Saqlash</button></div>
-<div class="row" id="remoteRow" style="display:none"><input id="remote" type="url" placeholder="Kompyuter manzili (https://..../shot)" autocomplete="off"><button class="small" id="saveRemote">Saqlash</button></div>
 <button class="shoot" id="shoot">Skrinshot qilish</button>
 <div id="msg"></div>
 <div id="out"><img id="img" alt="Skrinshot"><a class="small" id="dl">Yuklab olish</a></div>
 <script>
 const $ = (id) => document.getElementById(id);
 const KEY = "shot_token";
-const RKEY = "shot_remote";
 let token = "";
-let remote = "";
 try { token = localStorage.getItem(KEY) || ""; } catch (e) {}
-try { remote = (localStorage.getItem(RKEY) || "").replace(/\/+$/, ""); } catch (e) {}
 let blobUrl = null;
 function setMsg(t, err) { $("msg").textContent = t; $("msg").className = err ? "err" : ""; }
-function needsRemote() {
-  // Vercel yoki boshqa proksi host: agar remote saqlanmagan bo'lsa so'raymiz
-  const h = location.hostname;
-  return h.endsWith(".vercel.app") || h.endsWith(".vercel.sh");
-}
-function refresh() {
-  $("tokenRow").style.display = token ? "none" : "flex";
-  $("remoteRow").style.display = (needsRemote() && !remote) ? "flex" : "none";
-}
+function refresh() { $("tokenRow").style.display = token ? "none" : "flex"; }
 $("save").onclick = () => {
   const v = $("token").value.trim();
   if (!v) return;
@@ -251,31 +239,14 @@ $("save").onclick = () => {
   refresh();
   setMsg("Token saqlandi.");
 };
-$("saveRemote").onclick = () => {
-  let v = $("remote").value.trim().replace(/\/+$/, "");
-  if (!v) return;
-  if (!/^https?:\/\//i.test(v)) v = "https://" + v;
-  remote = v.replace(/\/+$/, "");
-  try { localStorage.setItem(RKEY, remote); } catch (e) {}
-  $("remote").value = "";
-  refresh();
-  setMsg("Kompyuter manzili saqlandi.");
-};
 $("shoot").onclick = async () => {
   if (!token) { setMsg("Avval tokenni kiriting.", true); return; }
-  if (needsRemote() && !remote) { setMsg("Kompyuter manzilini kiriting (ngrok /shot).", true); refresh(); return; }
   const btn = $("shoot");
   btn.disabled = true;
   setMsg("Skrinshot olinmoqda...");
   try {
-    let url;
-    if (remote) {
-      url = remote + "/api/screenshot";
-    } else {
-      const base = (location.pathname.replace(/\/+$/, "") || "") + "/";
-      url = base + "api/screenshot";
-    }
-    const r = await fetch(url, {
+    const base = (location.pathname.replace(/\/+$/, "") || "") + "/";
+    const r = await fetch(base + "api/screenshot", {
       method: "POST",
       headers: {
         Authorization: "Bearer " + token,
