@@ -9,6 +9,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -16,7 +18,7 @@ from flask import Flask, Response, jsonify, request
 
 BASE = Path(__file__).resolve().parent
 # Kompyuterga xos sozlamalar va token kod papkasidan tashqarida turadi.
-CONFIG_DIR = Path(os.environ.get("SCREENSHOT_CONFIG_DIR") or Path.home() / ".config" / "screenshot-button")
+CONFIG_DIR = Path(os.environ.get("SCREENSHOT_CONFIG_DIR") or os.path.expanduser("~/.config/screenshot-button"))
 TOKEN_FILE = CONFIG_DIR / "token"
 LEGACY_TOKEN_FILE = BASE / ".token"
 
@@ -37,6 +39,12 @@ def load_config_env() -> None:
 load_config_env()
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8765"))
+
+# Proksi rejimi: Vercel'da (yoki REMOTE_URL berilganda) hech narsa yozilmaydi va skrinshot olinmaydi,
+# so'rov kompyuterdagi serverga uzatiladi. Token Vercel'da saqlanmaydi.
+ON_VERCEL = bool(os.environ.get("VERCEL"))
+REMOTE_URL = os.environ.get("REMOTE_URL", "").strip().rstrip("/")
+PROXY_MODE = ON_VERCEL or bool(REMOTE_URL)
 
 
 def load_token() -> str:
@@ -59,7 +67,7 @@ def load_token() -> str:
     return new
 
 
-TOKEN = load_token()
+TOKEN = "" if PROXY_MODE else load_token()
 CAPTURE_LOCK = threading.Lock()
 app = Flask(__name__)
 
@@ -123,8 +131,32 @@ def healthz():
     return "ok"
 
 
+def proxy_screenshot():
+    """So'rovni kompyuterdagi serverga uzatadi (Authorization sarlavhasi o'zgarishsiz o'tadi)."""
+    if not REMOTE_URL:
+        return jsonify(error="Kompyuter manzili sozlanmagan (REMOTE_URL)."), 503
+    req = urllib.request.Request(
+        REMOTE_URL + "/api/screenshot",
+        data=b"",
+        method="POST",
+        headers={
+            "Authorization": request.headers.get("Authorization", ""),
+            "ngrok-skip-browser-warning": "1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r:
+            return Response(r.read(), status=r.status, mimetype=r.headers.get_content_type())
+    except urllib.error.HTTPError as e:
+        return Response(e.read(), status=e.code, mimetype=e.headers.get_content_type() or "application/json")
+    except Exception:
+        return jsonify(error="Kompyuterga ulanib bo'lmadi. U o'chiq yoki tunnel ishlamayapti."), 502
+
+
 @app.post("/api/screenshot")
 def screenshot():
+    if PROXY_MODE:
+        return proxy_screenshot()
     if not authorized():
         time.sleep(0.5)
         return jsonify(error="Token noto'g'ri."), 401

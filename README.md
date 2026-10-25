@@ -48,3 +48,9 @@ Server faqat `127.0.0.1` da tinglaydi. Tashqaridan ochish uchun tunnel kerak (Ta
 ## Xavfsizlik
 
 Bu dastur ekraningizni ko'rsatadi: tokenni hech kimga bermang, tunnelni faqat kerakli qurilmalarga oching.
+
+## Vercel (proksi rejimi)
+
+Vercel'da `grim` ham, ekran ham yo'q, shuning uchun u yerda kod avtomatik proksi rejimiga o'tadi (`VERCEL` o'zgaruvchisi bo'yicha): faqat sahifani ko'rsatadi va `/api/screenshot` so'rovini kompyuterdagi serverga uzatadi. Token Vercel'da saqlanmaydi, u brauzerdan to'g'ridan-to'g'ri o'tadi.
+
+Vercel'da bitta o'zgaruvchi kerak: `REMOTE_URL` = kompyuterning ommaviy tunnel manzili (masalan `https://xxxx.ngrok-free.app`). Usiz tugma "manzil sozlanmagan" xabarini beradi.
