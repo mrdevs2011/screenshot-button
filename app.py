@@ -479,227 +479,177 @@ PAGE = r"""<!doctype html>
 <html lang="uz">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<title>Skrinshot</title>
+<meta name="theme-color" content="#000">
+<title>·</title>
 <style>
-:root{color-scheme:dark}
-*{box-sizing:border-box}
-body{margin:0;min-height:100vh;background:#000;color:#eee;font:16px/1.5 system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:24px 16px;gap:14px}
-h1{font-size:18px;font-weight:600;margin:0;color:#aaa}
-button,input,a{font:inherit}
-.shoot{width:100%;max-width:420px;padding:18px;background:#fff;color:#000;border:0;font-weight:600;font-size:18px;cursor:pointer}
-.shoot:disabled{opacity:.4;cursor:wait}
-.row{display:flex;gap:8px;width:100%;max-width:420px}
-input{flex:1;padding:12px;background:#111;color:#eee;border:1px solid #333}
-.small{padding:12px 16px;background:#222;color:#eee;border:1px solid #333;cursor:pointer;text-decoration:none;text-align:center}
-.small.danger{border-color:#7f1d1d;color:#fca5a5}
-#msg{min-height:1.5em;color:#aaa;font-size:14px;text-align:center}
+:root{color-scheme:dark;--bg:#000;--fg:#f5f5f5;--muted:#333;--line:#222;--danger:#b91c1c;--ok:#fff}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;-webkit-tap-highlight-color:transparent}
+body{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));gap:12px}
+.wrap{width:100%;max-width:28rem;display:flex;flex-direction:column;gap:10px}
+.row{display:flex;gap:8px}
+input{flex:1;min-width:0;height:48px;padding:0 14px;background:#0a0a0a;color:var(--fg);border:1px solid var(--line);border-radius:10px;outline:none}
+input:focus{border-color:#555}
+button,.btn{height:48px;padding:0 16px;border:0;border-radius:10px;font:inherit;font-weight:600;cursor:pointer;user-select:none;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:inherit}
+button:disabled{opacity:.35;cursor:not-allowed}
+#go{background:var(--ok);color:#000;min-width:48px}
+#shot{width:100%;height:56px;background:var(--ok);color:#000;font-size:20px}
+#out{display:none;width:min(100%,1100px);flex-direction:column;gap:10px;align-items:center;margin-top:4px}
+#out img{width:100%;height:auto;border-radius:12px;border:1px solid var(--line);background:#0a0a0a}
+.bar{display:none;align-items:center;justify-content:space-between;gap:8px}
+#ttl{font-variant-numeric:tabular-nums;color:#666;font-size:13px;min-height:1em}
+#logout{background:transparent;border:1px solid var(--muted);color:#aaa;height:40px;padding:0 12px;border-radius:8px}
+#logout:active,#logout:hover{border-color:var(--danger);color:#fca5a5}
+#dl{background:#111;border:1px solid var(--line);color:#ddd;height:44px;padding:0 18px;border-radius:10px}
+#msg{min-height:1.2em;font-size:13px;color:#666;text-align:center}
 #msg.err{color:#f87171}
-#out{display:none;width:100%;max-width:1100px;flex-direction:column;gap:10px;align-items:center}
-#out img{width:100%;height:auto;border:1px solid #333}
-#bar{width:100%;max-width:420px;display:none;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:#888}
-#bar button{padding:8px 12px}
+@media (min-width:768px){body{padding:32px}#shot{height:60px;font-size:22px}}
+@media (min-width:1024px){.wrap{max-width:32rem}}
 </style>
 </head>
 <body>
-<h1>Kompyuter skrinshoti</h1>
-<div class="row" id="tokenRow"><input id="token" type="password" placeholder="Token" autocomplete="off" inputmode="text"><button class="small" id="save">Kirish</button></div>
-<div id="bar"><span id="ttl"></span><button class="small danger" id="logout">Chiqish</button></div>
-<button class="shoot" id="shoot" disabled>Skrinshot qilish</button>
+<div class="wrap" id="auth">
+  <div class="row">
+    <input id="token" type="password" placeholder="parol" autocomplete="current-password" enterkeyhint="go">
+    <button type="button" id="go" title="Enter">→</button>
+  </div>
+</div>
+<div class="wrap" id="main" style="display:none">
+  <div class="bar" id="bar">
+    <span id="ttl"></span>
+    <button type="button" id="logout" title="Esc / L">✕</button>
+  </div>
+  <button type="button" id="shot" title="Space / Enter / S">●</button>
+</div>
 <div id="msg"></div>
-<div id="out"><img id="img" alt="Skrinshot"><a class="small" id="dl">Yuklab olish</a></div>
+<div id="out">
+  <img id="img" alt="">
+  <a class="btn" id="dl" download title="Download">↓</a>
+</div>
 <script>
 const $ = (id) => document.getElementById(id);
 const SKEY = "shot_session_v2";
 const base = (location.pathname.replace(/\/+$/, "") || "") + "/";
-let session = null;
-let expAt = 0;
-let blobUrl = null;
-let timer = null;
-let pingTimer = null;
-
+let session = null, expAt = 0, blobUrl = null, timer = null, pingTimer = null, busy = false;
 try {
   const raw = sessionStorage.getItem(SKEY);
   if (raw) {
     const o = JSON.parse(raw);
-    if (o && o.session && o.expAt > Date.now()) {
-      session = o.session;
-      expAt = o.expAt;
-    }
+    if (o && o.session && o.expAt > Date.now()) { session = o.session; expAt = o.expAt; }
   }
 } catch (e) {}
-
 function setMsg(t, err) { $("msg").textContent = t || ""; $("msg").className = err ? "err" : ""; }
-
 function persist() {
   try {
-    if (session && expAt > Date.now())
-      sessionStorage.setItem(SKEY, JSON.stringify({ session, expAt }));
+    if (session && expAt > Date.now()) sessionStorage.setItem(SKEY, JSON.stringify({ session, expAt }));
     else sessionStorage.removeItem(SKEY);
   } catch (e) {}
 }
-
 function clearSession() {
-  session = null;
-  expAt = 0;
-  persist();
+  session = null; expAt = 0; persist();
   if (timer) { clearInterval(timer); timer = null; }
   if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
   refresh();
 }
-
-function remainingSec() {
-  return Math.max(0, Math.floor((expAt - Date.now()) / 1000));
-}
-
-function fmt(s) {
-  const m = Math.floor(s / 60), r = s % 60;
-  return m + ":" + String(r).padStart(2, "0");
-}
-
+function remainingSec() { return Math.max(0, Math.floor((expAt - Date.now()) / 1000)); }
+function fmt(s) { const m = Math.floor(s / 60), r = s % 60; return m + ":" + String(r).padStart(2, "0"); }
 function refresh() {
   const ok = !!(session && remainingSec() > 0);
-  $("tokenRow").style.display = ok ? "none" : "flex";
+  $("auth").style.display = ok ? "none" : "flex";
+  $("main").style.display = ok ? "flex" : "none";
   $("bar").style.display = ok ? "flex" : "none";
-  $("shoot").disabled = !ok;
-  if (ok) $("ttl").textContent = "Sessiya: " + fmt(remainingSec());
-  else $("ttl").textContent = "";
+  $("shot").disabled = !ok || busy;
+  $("ttl").textContent = ok ? fmt(remainingSec()) : "";
 }
-
 function tick() {
   if (!session) return;
-  if (remainingSec() <= 0) {
-    clearSession();
-    setMsg("Sessiya tugadi (5 daqiqa). Qayta kiring.", true);
-    return;
-  }
+  if (remainingSec() <= 0) { clearSession(); setMsg(""); return; }
   refresh();
 }
-
 async function api(path, opts = {}) {
-  const headers = Object.assign({
-    "ngrok-skip-browser-warning": "1",
-  }, opts.headers || {});
+  const headers = Object.assign({ "ngrok-skip-browser-warning": "1" }, opts.headers || {});
   if (session) headers["X-Session"] = session;
-  const r = await fetch(base + path.replace(/^\//, ""), Object.assign({}, opts, { headers }));
-  return r;
+  return fetch(base + path.replace(/^\//, ""), Object.assign({}, opts, { headers }));
 }
-
-$("save").onclick = async () => {
+async function doLogin() {
   const v = $("token").value.trim();
-  if (!v) return;
-  $("save").disabled = true;
-  setMsg("Kirish...");
+  if (!v || busy) return;
+  busy = true; $("go").disabled = true; setMsg("");
   try {
     const r = await fetch(base + "api/login", {
       method: "POST",
-      headers: {
-        Authorization: "Bearer " + v,
-        "ngrok-skip-browser-warning": "1",
-      },
+      headers: { Authorization: "Bearer " + v, "ngrok-skip-browser-warning": "1" },
     });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || ("Xato: " + r.status));
+    if (!r.ok) throw new Error(j.error || String(r.status));
     session = j.session;
     expAt = Date.now() + (j.expires_in || 300) * 1000;
     $("token").value = "";
-    persist();
-    if (timer) clearInterval(timer);
-    timer = setInterval(tick, 1000);
-    if (pingTimer) clearInterval(pingTimer);
-    pingTimer = setInterval(async () => {
-      if (!session) return;
-      try {
-        const r = await api("api/session");
-        if (r.status === 401) {
-          clearSession();
-          setMsg("Sessiya tugadi. Qayta kiring.", true);
-        } else if (r.ok) {
-          const j = await r.json();
-          if (typeof j.remaining === "number") {
-            expAt = Date.now() + j.remaining * 1000;
-            persist();
-          }
-        }
-      } catch (e) {}
-    }, 30000);
-    refresh();
-    setMsg("Kirildi. Sessiya 5 daqiqa (faollikda uzayadi).");
-  } catch (e) {
-    setMsg(e.message || String(e), true);
-  } finally {
-    $("save").disabled = false;
-  }
-};
-
-$("logout").onclick = async () => {
+    persist(); startTimers(); refresh();
+  } catch (e) { setMsg("·", true); }
+  finally { busy = false; $("go").disabled = false; }
+}
+function startTimers() {
+  if (timer) clearInterval(timer);
+  timer = setInterval(tick, 1000);
+  if (pingTimer) clearInterval(pingTimer);
+  pingTimer = setInterval(async () => {
+    if (!session) return;
+    try {
+      const r = await api("api/session");
+      if (r.status === 401) { clearSession(); return; }
+      if (r.ok) {
+        const j = await r.json();
+        if (typeof j.remaining === "number") { expAt = Date.now() + j.remaining * 1000; persist(); }
+      }
+    } catch (e) {}
+  }, 30000);
+}
+async function doLogout() {
   try { await api("api/logout", { method: "POST" }); } catch (e) {}
-  clearSession();
-  setMsg("Chiqildi.");
-};
-
-$("shoot").onclick = async () => {
-  if (!session || remainingSec() <= 0) {
-    clearSession();
-    setMsg("Avval kiring.", true);
-    return;
-  }
-  const btn = $("shoot");
-  btn.disabled = true;
-  const t0 = performance.now();
-  setMsg("...");
+  clearSession(); setMsg(""); $("out").style.display = "none";
+}
+async function doShot() {
+  if (!session || remainingSec() <= 0) { clearSession(); return; }
+  if (busy) return;
+  busy = true; $("shot").disabled = true; setMsg("");
   try {
     const r = await api("api/screenshot", { method: "POST" });
-    if (r.status === 401) {
-      clearSession();
-      throw new Error("Sessiya tugadi. Qayta kiring.");
-    }
+    if (r.status === 401) { clearSession(); return; }
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
-      throw new Error(j.error || ("Xato: " + r.status));
+      throw new Error(j.error || String(r.status));
     }
     const blob = await r.blob();
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     blobUrl = URL.createObjectURL(blob);
     const name = "skrinshot_" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
-    $("img").src = blobUrl;
-    $("dl").href = blobUrl;
-    $("dl").download = name;
+    $("img").src = blobUrl; $("dl").href = blobUrl; $("dl").download = name;
     $("out").style.display = "flex";
-    const ms = Math.round(performance.now() - t0);
-    const serverMs = r.headers.get("X-Capture-Ms") || "?";
-    const age = r.headers.get("X-Buffer-Age-Ms") || "?";
-    setMsg("Tayyor: " + ms + " ms (server " + serverMs + " ms, buffer " + age + " ms)");
-    // sessiya sliding
-    expAt = Date.now() + 300000;
-    persist();
-    refresh();
-  } catch (e) {
-    setMsg(e.message || String(e), true);
-  } finally {
-    btn.disabled = !(session && remainingSec() > 0);
-  }
-};
-
-if (session && remainingSec() > 0) {
-  timer = setInterval(tick, 1000);
-  pingTimer = setInterval(async () => {
-    try {
-      const r = await api("api/session");
-      if (r.status === 401) { clearSession(); setMsg("Sessiya tugadi. Qayta kiring.", true); }
-    } catch (e) {}
-  }, 30000);
+    expAt = Date.now() + 300000; persist(); refresh();
+  } catch (e) { setMsg("·", true); }
+  finally { busy = false; refresh(); }
 }
+$("go").onclick = doLogin;
+$("logout").onclick = doLogout;
+$("shot").onclick = doShot;
+$("token").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doLogin(); } });
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  const typing = tag === "INPUT" || tag === "TEXTAREA";
+  if (e.key === "Escape") { e.preventDefault(); if (session) doLogout(); return; }
+  if (typing) return;
+  if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (session) doShot(); }
+  if (e.key === "s" || e.key === "S") { e.preventDefault(); if (session) doShot(); }
+  if (e.key === "l" || e.key === "L") { e.preventDefault(); if (session) doLogout(); }
+});
+if (session && remainingSec() > 0) startTimers();
 refresh();
-
-// sahifa yopilganda sessiya serverda ham yopiladi (best-effort)
 window.addEventListener("pagehide", () => {
   if (!session) return;
-  try {
-    const u = base + "api/logout?session=" + encodeURIComponent(session);
-    navigator.sendBeacon(u);
-  } catch (e) {}
+  try { navigator.sendBeacon(base + "api/logout?session=" + encodeURIComponent(session)); } catch (e) {}
 });
 </script>
 </body>
