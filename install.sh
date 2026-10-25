@@ -19,6 +19,11 @@ PORT=8765
 CFG
 fi
 
+if command -v fish >/dev/null 2>&1; then
+  mkdir -p "$HOME/.config/fish/functions"
+  cp "$APP_DIR/deploy/scrsettok.fish" "$HOME/.config/fish/functions/scrsettok.fish"
+fi
+
 sed -e "s#@APP_DIR@#$APP_DIR#g" -e "s#@CONFIG_DIR@#$CONFIG_DIR#g" \
   "$APP_DIR/deploy/screenshot-button.service.template" > "$UNIT_DIR/screenshot-button.service"
 

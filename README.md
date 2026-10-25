@@ -54,3 +54,7 @@ Bu dastur ekraningizni ko'rsatadi: tokenni hech kimga bermang, tunnelni faqat ke
 Vercel'da `grim` ham, ekran ham yo'q, shuning uchun u yerda kod avtomatik proksi rejimiga o'tadi (`VERCEL` o'zgaruvchisi bo'yicha): faqat sahifani ko'rsatadi va `/api/screenshot` so'rovini kompyuterdagi serverga uzatadi. Token Vercel'da saqlanmaydi, u brauzerdan to'g'ridan-to'g'ri o'tadi.
 
 Vercel'da bitta o'zgaruvchi kerak: `REMOTE_URL` = kompyuterning ommaviy tunnel manzili (masalan `https://xxxx.ngrok-free.app`). Usiz tugma "manzil sozlanmagan" xabarini beradi.
+
+## Tokenni almashtirish (fish)
+
+`install.sh` fish uchun `scrsettok` buyrug'ini o'rnatadi (`~/.config/fish/functions/scrsettok.fish`). U hozirgi tokenni ko'rsatadi, yangi token qo'yamizmi deb so'raydi (Enter bilan davom, Ctrl+C bilan bekor), so'ng tokenni yozib servisni qayta ishga tushiradi. Yangi token bo'sh qoldirilsa avtomatik yaratiladi.
