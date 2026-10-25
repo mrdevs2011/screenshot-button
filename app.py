@@ -985,17 +985,21 @@ async function doShot() {
   } catch (e) { setMsg("·"); }
   finally { busy = false; refresh(); }
 }
-/* ===== VIDEO REJIMI: 5 soniyalik segmentlar, ikki pleyer (uzluksiz) ===== */
+/* ===== VIDEO REJIMI: 5 soniyalik segmentlar. MSE = uzluksiz bufer; zaxira = ikki pleyer ===== */
 const vids = [$("va"), $("vb")];
+const MSC = window.ManagedMediaSource || window.MediaSource;
 let vSeg = 5, vTimer = null, vList = [], vFront = 0, vCur = null, vPre = null;
 let vWaiting = false, vPlaying = false, vPreBusy = false, vStartedAt = 0;
+let useMse = false, mMs = null, mSb = null, mUrl = null, mQueue = [], mPending = null, mNext = null, mSegs = [], mFetching = false;
 const vCache = new Map(), vBusy = new Set();
 vids.forEach((v) => {
   v.muted = true;
   v.addEventListener("ended", () => {
-    if (v === vids[vFront] && mode === "video") { vWaiting = true; vAdvance(); }
+    if (!useMse && v === vids[vFront] && mode === "video") { vWaiting = true; vAdvance(); }
   });
 });
+vids[0].addEventListener("waiting", () => { if (useMse && mode === "video") vSetTag("···"); });
+vids[0].addEventListener("playing", () => { if (useMse && mode === "video") mUpdateTag(); });
 
 function onFabTap() { if (mode === "video") vGoLive(); else doShot(); }
 
@@ -1024,6 +1028,7 @@ function vSetTag(t) {
   el.style.display = t ? "block" : "none";
 }
 function vUpdateTag() {
+  if (useMse) { mUpdateTag(); return; }
   if (vCur == null || !vList.length || vWaiting) { vSetTag("···"); return; }
   const last = vList[vList.length - 1];
   vSetTag("-" + ((last - vCur + 1) * vSeg) + "s");
@@ -1032,6 +1037,7 @@ function vUpdateTag() {
 function startVideo(seg) {
   mode = "video"; vSeg = seg || 5; IDLE_MS = IDLE_VIDEO;
   vList = []; vCur = null; vPre = null; vWaiting = false; vPlaying = false; vPreBusy = false;
+  mReset(); useMse = !!MSC;
   vStartedAt = Date.now();
   vids.forEach((v) => {
     v.classList.remove("on");
@@ -1039,6 +1045,7 @@ function startVideo(seg) {
     v.removeAttribute("src");
     try { v.load(); } catch (e) {}
   });
+  if (useMse) vids[0].classList.add("on");
   $("frame").classList.add("vmode");
   $("stage").style.display = "block";
   fab.textContent = "▶"; fab.title = "Video";
@@ -1051,6 +1058,7 @@ function startVideo(seg) {
 
 function stopVideo() {
   if (vTimer) { clearInterval(vTimer); vTimer = null; }
+  mReset(); useMse = false;
   vids.forEach((v) => {
     try { v.pause(); } catch (e) {}
     v.classList.remove("on");
@@ -1079,19 +1087,139 @@ async function vPoll() {
   if (mode !== "video") return;
   vList = (j.segments || []).map((s) => s.seq);
   if (j.error && !j.running) setMsg("video: " + String(j.error).slice(0, 80));
-  vTick();
+  if (useMse) mTick(); else vTick();
 }
 
+/* ---------- MSE: segmentlar bitta bufer'ga ketma-ket qo'shiladi (chegara yo'q) ---------- */
+function mReset() {
+  try { if (mMs && mMs.readyState === "open") mMs.endOfStream(); } catch (e) {}
+  if (mUrl) { try { URL.revokeObjectURL(mUrl); } catch (e) {} }
+  mMs = null; mSb = null; mUrl = null; mQueue = []; mPending = null; mNext = null; mSegs = []; mFetching = false;
+}
+function mCodecFrom(buf) {
+  const u = new Uint8Array(buf);
+  const hex = (n) => ("0" + n.toString(16)).slice(-2);
+  const lim = Math.min(u.length - 8, 4096);
+  for (let i = 0; i < lim; i++) {
+    if (u[i] === 0x61 && u[i + 1] === 0x76 && u[i + 2] === 0x63 && u[i + 3] === 0x43) {
+      return "avc1." + hex(u[i + 5]) + hex(u[i + 6]) + hex(u[i + 7]);
+    }
+  }
+  return "avc1.42c01f";
+}
+async function mSetup(buf) {
+  const type = 'video/mp4; codecs="' + mCodecFrom(buf) + '"';
+  if (!MSC.isTypeSupported(type)) return false;
+  const ms = new MSC();
+  mMs = ms; mUrl = URL.createObjectURL(ms);
+  const v = vids[0];
+  v.disableRemotePlayback = true;
+  v.src = mUrl;
+  await new Promise((res) => ms.addEventListener("sourceopen", res, { once: true }));
+  if (mMs !== ms) return true;
+  mSb = ms.addSourceBuffer(type);
+  mSb.mode = "sequence";
+  mSb.addEventListener("updateend", mOnEnd);
+  return true;
+}
+function mFallback() {
+  mReset(); useMse = false;
+  vids[0].classList.remove("on");
+  try { vids[0].removeAttribute("src"); vids[0].load(); } catch (e) {}
+  vStartedAt = Date.now();
+  vTick();
+}
+async function mTick() {
+  mUpdateTag();
+  if (mFetching || !vList.length) return;
+  mFetching = true;
+  try {
+    let want = mNext;
+    if (want == null) want = Math.max(vList[0], vList[vList.length - 1] - 1);
+    for (const s of vList) {
+      if (s < want) continue;
+      if (mode !== "video" || !useMse) return;
+      const r = await api("api/video/seg/" + s);
+      if (r.status === 401) { clearSession(); return; }
+      if (!r.ok) break;
+      const buf = await r.arrayBuffer();
+      if (mode !== "video" || !useMse) return;
+      if (!mMs) {
+        let ok = false;
+        try { ok = await mSetup(buf); } catch (e) { ok = false; }
+        if (!ok) { mFallback(); return; }
+      }
+      mQueue.push({ seq: s, buf });
+      mNext = s + 1;
+      mPump();
+    }
+  } catch (e) {}
+  finally { mFetching = false; }
+}
+function mPump() {
+  if (!mSb || mSb.updating || !mQueue.length || !mMs || mMs.readyState !== "open") return;
+  const it = mQueue.shift();
+  try { mSb.appendBuffer(it.buf); mPending = it.seq; }
+  catch (e) {
+    mQueue.unshift(it);
+    if (e && e.name === "QuotaExceededError") mTrim(true);
+  }
+}
+function mOnEnd() {
+  const v = vids[0];
+  if (mPending != null) {
+    const b = mSb.buffered;
+    const end = b.length ? b.end(b.length - 1) : 0;
+    const start = mSegs.length ? mSegs[mSegs.length - 1].end : (b.length ? b.start(0) : 0);
+    if (end > start) mSegs.push({ seq: mPending, start, end });
+    mPending = null;
+    if (v.paused && (mSegs.length >= 2 || Date.now() - vStartedAt > 12000)) {
+      try { v.play().catch(() => {}); } catch (e) {}
+    }
+  }
+  mTrim(false);
+  if (!mSb.updating) mPump();
+  mUpdateTag();
+}
+function mTrim(force) {
+  if (!mSb || mSb.updating) return;
+  const ct = vids[0].currentTime;
+  let k = -1;
+  for (let i = 0; i < mSegs.length - 1; i++) {
+    if (mSegs[i].end <= ct - (force ? 5 : 40)) k = i; else break;
+  }
+  if (k < 0) return;
+  const cut = mSegs[k].end;
+  mSegs.splice(0, k + 1);
+  try { mSb.remove(0, cut); } catch (e) {}
+}
+function mUpdateTag() {
+  if (!mSegs.length) { vSetTag("···"); return; }
+  const lag = mSegs[mSegs.length - 1].end - vids[0].currentTime + vSeg;
+  vSetTag("-" + Math.max(vSeg, Math.round(lag)) + "s");
+}
+function mIdx() {
+  const ct = vids[0].currentTime;
+  for (let i = 0; i < mSegs.length; i++) if (ct < mSegs[i].end - 0.02) return i;
+  return mSegs.length - 1;
+}
+function mSeek(i) {
+  if (!mSegs.length) return;
+  const j = Math.min(mSegs.length - 1, Math.max(0, i));
+  vids[0].currentTime = mSegs[j].start + 0.02;
+  try { vids[0].play().catch(() => {}); } catch (e) {}
+}
+
+/* ---------- zaxira (MSE yo'q brauzerlar): ikki pleyer, oldindan yuklash ---------- */
 function vTick() {
   if (!vList.length) { if (vCur == null) vSetTag("···"); return; }
   const first = vList[0], last = vList[vList.length - 1];
   if (vCur == null) {
-    // boshlash: keyingi segment ham tayyor bo'lsa (yoki 12 soniya kutilgan bo'lsa)
     const start = Math.max(first, last - 1);
     if (start < last || Date.now() - vStartedAt > 12000) vPlay(start);
     return;
   }
-  if (vCur < first) { vPlay(first); return; }  // bufer ortda qoldi — eng eskisiga o'tamiz
+  if (vCur < first) { vPlay(first); return; }
   vPreload();
   if (vWaiting) vAdvance();
   vUpdateTag();
@@ -1175,8 +1303,20 @@ function vCleanup() {
   }
 }
 
+// zaxira yo'lda: segment tugashidan sal oldin keyingisiga o'tamiz (qotish bo'lmasin)
+function vRaf() {
+  if (mode === "video" && !useMse && vCur != null && !vPlaying && vPre != null) {
+    const f = vids[vFront];
+    if (f.duration > 0 && f.duration - f.currentTime < 0.12) { vWaiting = true; vAdvance(); }
+  }
+  requestAnimationFrame(vRaf);
+}
+requestAnimationFrame(vRaf);
+
 function vStep(d) {
-  if (mode !== "video" || !vList.length) return;
+  if (mode !== "video") return;
+  if (useMse) { touch(); mSeek(mIdx() + d); return; }
+  if (!vList.length) return;
   touch();
   let i = vCur == null ? -1 : vList.indexOf(vCur);
   if (i < 0) i = vList.findIndex((s) => s >= (vCur == null ? 0 : vCur));
@@ -1187,7 +1327,9 @@ function vStep(d) {
 }
 
 function vGoLive() {
-  if (mode !== "video" || !vList.length) return;
+  if (mode !== "video") return;
+  if (useMse) { touch(); mSeek(mSegs.length - 2); return; }
+  if (!vList.length) return;
   touch();
   vWaiting = false;
   vPlay(vList[Math.max(0, vList.length - 2)]);

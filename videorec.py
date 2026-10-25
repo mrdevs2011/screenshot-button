@@ -115,7 +115,7 @@ class Recorder:
                 "-force_key_frames", f"expr:gte(t,n_forced*{SEG_SECONDS})",
                 "-f", "segment", "-segment_time", str(SEG_SECONDS),
                 "-segment_format", "mp4",
-                "-segment_format_options", "movflags=+faststart",
+                "-segment_format_options", "movflags=+frag_keyframe+empty_moov+default_base_moof",
                 "-segment_start_number", str(self._next_seq),
                 "-segment_list", str(self.dir / "list.csv"),
                 "-segment_list_type", "csv",
