@@ -750,9 +750,10 @@ async function doLogin() {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || String(r.status));
     session = j.session; $("token").value = "";
+    busy = false;
     touch(); startPing(); refresh();
   } catch (e) { setMsg("·", true); }
-  finally { busy = false; $("go").disabled = false; }
+  finally { busy = false; $("go").disabled = false; refresh(); }
 }
 function startPing() {
   if (pingTimer) clearInterval(pingTimer);
