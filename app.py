@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""Screenshot Button: tugmani bosing, kompyuter ekrani skrinshot qilinib sizga keladi."""
+import glob
+import hmac
+import os
+import secrets
+import shutil
+import subprocess
+import tempfile
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+
+from flask import Flask, Response, jsonify, request
+
+BASE = Path(__file__).resolve().parent
+TOKEN_FILE = BASE / ".token"
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8765"))
+
+
+def load_token() -> str:
+    env = os.environ.get("SCREENSHOT_TOKEN", "").strip()
+    if env:
+        return env
+    if TOKEN_FILE.exists():
+        saved = TOKEN_FILE.read_text().strip()
+        if saved:
+            return saved
+    new = secrets.token_urlsafe(24)
+    TOKEN_FILE.write_text(new + "\n")
+    TOKEN_FILE.chmod(0o600)
+    return new
+
+
+TOKEN = load_token()
+CAPTURE_LOCK = threading.Lock()
+app = Flask(__name__)
+
+
+def display_env() -> dict:
+    """Wayland/X11 sessiyasini avtomatik topadi (server terminaldan ishga tushsa ham ishlaydi)."""
+    env = os.environ.copy()
+    runtime = env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    env["XDG_RUNTIME_DIR"] = runtime
+    if not env.get("WAYLAND_DISPLAY"):
+        socks = sorted(p for p in glob.glob(os.path.join(runtime, "wayland-*")) if not p.endswith(".lock"))
+        if socks:
+            env["WAYLAND_DISPLAY"] = os.path.basename(socks[0])
+    if not env.get("DISPLAY") and os.path.exists("/tmp/.X11-unix/X0"):
+        env["DISPLAY"] = ":0"
+    return env
+
+
+def capture(path: str):
+    """Skrinshot oladi. (vosita_nomi, None) yoki (None, xato_matni) qaytaradi."""
+    env = display_env()
+    attempts = []
+    if env.get("WAYLAND_DISPLAY") and shutil.which("grim"):
+        attempts.append(["grim", path])
+    if env.get("DISPLAY"):
+        if shutil.which("scrot"):
+            attempts.append(["scrot", "-o", path])
+        if shutil.which("import"):
+            attempts.append(["import", "-window", "root", path])
+    if not attempts:
+        return None, "Skrinshot vositasi yoki ekran sessiyasi topilmadi (grim/scrot/import)."
+    errors = []
+    for cmd in attempts:
+        try:
+            r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=15)
+        except subprocess.TimeoutExpired:
+            errors.append(f"{cmd[0]}: vaqt tugadi")
+            continue
+        if r.returncode == 0 and os.path.exists(path) and os.path.getsize(path) > 0:
+            return cmd[0], None
+        errors.append(f"{cmd[0]}: {(r.stderr or '').strip()[:200]}")
+    return None, "; ".join(errors)
+
+
+def authorized() -> bool:
+    header = request.headers.get("Authorization", "")
+    supplied = header[7:] if header.lower().startswith("bearer ") else ""
+    return hmac.compare_digest(supplied.strip().encode(), TOKEN.encode())
+
+
+@app.after_request
+def secure(resp):
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    return resp
+
+
+@app.get("/healthz")
+def healthz():
+    return "ok"
+
+
+@app.post("/api/screenshot")
+def screenshot():
+    if not authorized():
+        time.sleep(0.5)
+        return jsonify(error="Token noto'g'ri."), 401
+    with CAPTURE_LOCK:
+        fd, path = tempfile.mkstemp(suffix=".png", prefix="shot_")
+        os.close(fd)
+        try:
+            tool, err = capture(path)
+            if err:
+                return jsonify(error=err), 500
+            with open(path, "rb") as f:
+                data = f.read()
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    name = "skrinshot_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".png"
+    return Response(
+        data,
+        mimetype="image/png",
+        headers={"Content-Disposition": f'inline; filename="{name}"', "X-Capture-Tool": tool},
+    )
+
+
+PAGE = """<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skrinshot</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#000;color:#eee;font:16px/1.5 system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:24px 16px;gap:16px}
+h1{font-size:18px;font-weight:600;margin:0;color:#aaa}
+button,input,a{font:inherit}
+.shoot{width:100%;max-width:420px;padding:18px;background:#fff;color:#000;border:0;font-weight:600;font-size:18px;cursor:pointer}
+.shoot:disabled{opacity:.4;cursor:wait}
+.row{display:flex;gap:8px;width:100%;max-width:420px}
+input{flex:1;padding:12px;background:#111;color:#eee;border:1px solid #333}
+.small{padding:12px 16px;background:#222;color:#eee;border:1px solid #333;cursor:pointer;text-decoration:none;text-align:center}
+#msg{min-height:1.5em;color:#aaa;font-size:14px}
+#msg.err{color:#f87171}
+#out{display:none;width:100%;max-width:1100px;flex-direction:column;gap:10px;align-items:center}
+#out img{width:100%;height:auto;border:1px solid #333}
+</style>
+</head>
+<body>
+<h1>Kompyuter skrinshoti</h1>
+<div class="row" id="tokenRow"><input id="token" type="password" placeholder="Token" autocomplete="off"><button class="small" id="save">Saqlash</button></div>
+<button class="shoot" id="shoot">Skrinshot qilish</button>
+<div id="msg"></div>
+<div id="out"><img id="img" alt="Skrinshot"><a class="small" id="dl">Yuklab olish</a></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const KEY = "shot_token";
+let token = "";
+try { token = localStorage.getItem(KEY) || ""; } catch (e) {}
+let blobUrl = null;
+function setMsg(t, err) { $("msg").textContent = t; $("msg").className = err ? "err" : ""; }
+function refresh() { $("tokenRow").style.display = token ? "none" : "flex"; }
+$("save").onclick = () => {
+  const v = $("token").value.trim();
+  if (!v) return;
+  token = v;
+  try { localStorage.setItem(KEY, v); } catch (e) {}
+  $("token").value = "";
+  refresh();
+  setMsg("Token saqlandi.");
+};
+$("shoot").onclick = async () => {
+  if (!token) { setMsg("Avval tokenni kiriting.", true); return; }
+  const btn = $("shoot");
+  btn.disabled = true;
+  setMsg("Skrinshot olinmoqda...");
+  try {
+    const r = await fetch("/api/screenshot", { method: "POST", headers: { Authorization: "Bearer " + token } });
+    if (r.status === 401) {
+      token = "";
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      refresh();
+      throw new Error("Token noto'g'ri. Qayta kiriting.");
+    }
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || ("Xato: " + r.status));
+    }
+    const blob = await r.blob();
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = URL.createObjectURL(blob);
+    const name = "skrinshot_" + new Date().toISOString().replace(/[:.]/g, "-") + ".png";
+    $("img").src = blobUrl;
+    $("dl").href = blobUrl;
+    $("dl").download = name;
+    $("out").style.display = "flex";
+    setMsg("Tayyor: " + new Date().toLocaleTimeString());
+  } catch (e) {
+    setMsg(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+};
+refresh();
+</script>
+</body>
+</html>"""
+
+
+@app.get("/")
+def index():
+    return Response(PAGE, mimetype="text/html")
+
+
+if __name__ == "__main__":
+    print(f"Skrinshot serveri: http://{HOST}:{PORT}")
+    print(f"Token faylda: {TOKEN_FILE}")
+    app.run(host=HOST, port=PORT, threaded=True)
