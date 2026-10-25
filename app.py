@@ -234,7 +234,8 @@ $("shoot").onclick = async () => {
   btn.disabled = true;
   setMsg("Skrinshot olinmoqda...");
   try {
-    const r = await fetch("/api/screenshot", { method: "POST", headers: { Authorization: "Bearer " + token } });
+    const base = (location.pathname.replace(/\/+$/, "") || "") + "/";
+    const r = await fetch(base + "api/screenshot", { method: "POST", headers: { Authorization: "Bearer " + token, "ngrok-skip-browser-warning": "1" } });
     if (r.status === 401) {
       token = "";
       try { localStorage.removeItem(KEY); } catch (e) {}

@@ -43,7 +43,17 @@ journalctl --user -u screenshot-button -f
 
 ## Boshqa qurilmadan ochish
 
-Server faqat `127.0.0.1` da tinglaydi. Tashqaridan ochish uchun tunnel kerak (Tailscale, ngrok yoki cloudflared).
+Server faqat `127.0.0.1` da tinglaydi. Bu kompyuterda MR AI edge-proxy orqali **ngrok** allaqachon ochiq:
+
+```
+https://satisfy-endurance-mooned.ngrok-free.dev/shot
+```
+
+Telefon yoki boshqa qurilmadan shu manzilni oching, tokenni bir marta kiriting (Saqlash), keyin **Skrinshot qilish**.
+
+Token: `cat ~/.config/screenshot-button/token`
+
+Alohida tunnel kerak bo'lsa (Tailscale, cloudflared yoki boshqa ngrok domen) ham ishlaydi.
 
 ## Xavfsizlik
 
