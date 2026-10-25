@@ -481,31 +481,61 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<meta name="theme-color" content="#000">
+<meta name="theme-color" content="#0a0a0a">
 <title>·</title>
 <style>
-:root{color-scheme:dark;--bg:#000;--fg:#f5f5f5;--muted:#333;--line:#222;--danger:#b91c1c;--ok:#fff}
+:root{color-scheme:dark}
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;-webkit-tap-highlight-color:transparent}
-body{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));gap:12px}
-.wrap{width:100%;max-width:28rem;display:flex;flex-direction:column;gap:10px}
-.row{display:flex;gap:8px}
-input{flex:1;min-width:0;height:48px;padding:0 14px;background:#0a0a0a;color:var(--fg);border:1px solid var(--line);border-radius:10px;outline:none}
-input:focus{border-color:#555}
-button,.btn{height:48px;padding:0 16px;border:0;border-radius:10px;font:inherit;font-weight:600;cursor:pointer;user-select:none;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:inherit}
+html,body{height:100%;background:#0a0a0a;color:#e5e5e5;font:13px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;-webkit-tap-highlight-color:transparent}
+body{min-height:100dvh;display:flex;flex-direction:column;align-items:center;padding:max(10px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));gap:8px}
+.wrap{width:100%;max-width:420px;display:flex;flex-direction:column;gap:6px}
+.row{display:flex;gap:6px}
+input{flex:1;min-width:0;height:36px;padding:0 10px;background:#111;color:#e5e5e5;border:1px solid #333;border-radius:0;outline:none;font:inherit}
+input:focus{border-color:#666}
+button,.btn{height:36px;padding:0 12px;border:1px solid #333;border-radius:0;background:#111;color:#e5e5e5;font:inherit;cursor:pointer;user-select:none;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
 button:disabled{opacity:.35;cursor:not-allowed}
-#go{background:var(--ok);color:#000;min-width:48px}
-#shot{width:100%;height:56px;background:var(--ok);color:#000;font-size:20px}
-#out{display:none;width:min(100%,1100px);flex-direction:column;gap:10px;align-items:center;margin-top:4px}
-#out img{width:100%;height:auto;border-radius:12px;border:1px solid var(--line);background:#0a0a0a}
+#go{background:#e5e5e5;color:#0a0a0a;border-color:#e5e5e5;min-width:36px;font-weight:600}
+#shot{width:100%;height:48px;background:#e5e5e5;color:#0a0a0a;border-color:#e5e5e5;font-size:15px;font-weight:700;letter-spacing:.08em}
+#shot:active{background:#fff}
 .bar{display:none;justify-content:flex-end}
-#logout{background:transparent;border:1px solid var(--muted);color:#aaa;height:40px;padding:0 12px;border-radius:8px}
-#logout:active,#logout:hover{border-color:var(--danger);color:#fca5a5}
-#dl{background:#111;border:1px solid var(--line);color:#ddd;height:44px;padding:0 18px;border-radius:10px}
-#msg{min-height:1.2em;font-size:13px;color:#666;text-align:center}
+#logout{height:28px;padding:0 8px;color:#888;border-color:#2a2a2a;background:transparent;font-size:12px}
+#logout:hover{color:#f87171;border-color:#7f1d1d}
+#msg{min-height:1em;font-size:11px;color:#555;text-align:center}
 #msg.err{color:#f87171}
-@media (min-width:768px){body{padding:32px}#shot{height:60px;font-size:22px}}
-@media (min-width:1024px){.wrap{max-width:32rem}}
+#stage{display:none;width:100%;max-width:min(100%,960px);flex-direction:column;gap:6px;flex:1;min-height:0}
+.frame{
+  width:100%;
+  height:min(58dvh,520px);
+  border:1px solid #333;
+  background:#000;
+  overflow:hidden;
+  position:relative;
+  touch-action:none;
+  cursor:grab;
+}
+.frame.drag{cursor:grabbing}
+.frame img{
+  position:absolute;
+  left:50%;top:50%;
+  transform-origin:center center;
+  max-width:none;
+  user-select:none;
+  -webkit-user-drag:none;
+  pointer-events:none;
+}
+.zbar{display:flex;gap:6px;justify-content:center}
+.zbar button{height:28px;min-width:36px;padding:0 10px;font-size:14px;color:#ccc}
+@media (min-width:768px){
+  body{padding:16px}
+  .wrap{max-width:480px}
+  #shot{height:52px;font-size:16px}
+  .frame{height:min(62dvh,640px)}
+}
+@media (min-width:1024px){
+  .wrap{max-width:520px}
+  .frame{height:min(68dvh,720px);max-width:960px}
+  #stage{max-width:960px}
+}
 </style>
 </head>
 <body>
@@ -522,9 +552,14 @@ button:disabled{opacity:.35;cursor:not-allowed}
   <button type="button" id="shot" title="Space / Enter / S">●</button>
 </div>
 <div id="msg"></div>
-<div id="out">
-  <img id="img" alt="">
-  <a class="btn" id="dl" download title="Download">↓</a>
+<div id="stage">
+  <div class="frame" id="frame"><img id="img" alt=""></div>
+  <div class="zbar">
+    <button type="button" id="zout" title="-">−</button>
+    <button type="button" id="zfit" title="fit">⊡</button>
+    <button type="button" id="zin" title="+">+</button>
+    <a class="btn" id="dl" download title="Download">↓</a>
+  </div>
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -532,6 +567,11 @@ const SKEY = "shot_session_v3";
 const IDLE_MS = 5 * 60 * 1000;
 const base = (location.pathname.replace(/\/+$/, "") || "") + "/";
 let session = null, blobUrl = null, idleTimer = null, pingTimer = null, busy = false, lastAct = 0;
+
+/* zoom state: scale 1 = fit entire image in frame */
+let scale = 1, tx = 0, ty = 0, natW = 0, natH = 0, fit = 1;
+let dragging = false, lx = 0, ly = 0;
+let pins = new Map();
 
 try {
   const raw = sessionStorage.getItem(SKEY);
@@ -546,27 +586,22 @@ try {
 } catch (e) {}
 
 function setMsg(t, err) { $("msg").textContent = t || ""; $("msg").className = err ? "err" : ""; }
-
 function persist() {
   try {
     if (session) sessionStorage.setItem(SKEY, JSON.stringify({ session, lastAct }));
     else sessionStorage.removeItem(SKEY);
   } catch (e) {}
 }
-
 function touch() {
-  lastAct = Date.now();
-  persist();
+  lastAct = Date.now(); persist();
   if (session) armIdle();
 }
-
 function clearSession() {
   session = null; lastAct = 0; persist();
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
   if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
   refresh();
 }
-
 function armIdle() {
   if (idleTimer) clearTimeout(idleTimer);
   const left = IDLE_MS - (Date.now() - lastAct);
@@ -576,7 +611,6 @@ function armIdle() {
     else armIdle();
   }, Math.max(500, left));
 }
-
 function refresh() {
   const ok = !!session;
   $("auth").style.display = ok ? "none" : "flex";
@@ -585,12 +619,107 @@ function refresh() {
   $("shot").disabled = !ok || busy;
 }
 
+function calcFit() {
+  const fr = $("frame");
+  if (!natW || !natH || !fr.clientWidth) return 1;
+  return Math.min(fr.clientWidth / natW, fr.clientHeight / natH);
+}
+function applyTransform() {
+  const img = $("img");
+  const s = fit * scale;
+  img.style.width = natW + "px";
+  img.style.height = natH + "px";
+  img.style.transform = "translate(-50%,-50%) translate(" + tx + "px," + ty + "px) scale(" + s + ")";
+}
+function resetView() {
+  fit = calcFit();
+  scale = 1; tx = 0; ty = 0;
+  applyTransform();
+}
+function zoomBy(factor, cx, cy) {
+  const fr = $("frame");
+  const rect = fr.getBoundingClientRect();
+  const px = (cx != null ? cx : rect.left + rect.width / 2) - rect.left - rect.width / 2;
+  const py = (cy != null ? cy : rect.top + rect.height / 2) - rect.top - rect.height / 2;
+  const prev = scale;
+  scale = Math.min(8, Math.max(1, scale * factor));
+  if (scale === 1) { tx = 0; ty = 0; }
+  else {
+    const k = scale / prev;
+    tx = px - (px - tx) * k;
+    ty = py - (py - ty) * k;
+  }
+  applyTransform();
+}
+
+$("frame").addEventListener("wheel", (e) => {
+  e.preventDefault();
+  zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX, e.clientY);
+  touch();
+}, { passive: false });
+
+$("frame").addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "touch") return;
+  dragging = true; lx = e.clientX; ly = e.clientY;
+  $("frame").classList.add("drag");
+  $("frame").setPointerCapture(e.pointerId);
+  touch();
+});
+$("frame").addEventListener("pointermove", (e) => {
+  if (!dragging || e.pointerType === "touch") return;
+  if (scale <= 1) return;
+  tx += e.clientX - lx; ty += e.clientY - ly;
+  lx = e.clientX; ly = e.clientY;
+  applyTransform();
+});
+function endDrag(e) {
+  dragging = false;
+  $("frame").classList.remove("drag");
+}
+$("frame").addEventListener("pointerup", endDrag);
+$("frame").addEventListener("pointercancel", endDrag);
+
+$("frame").addEventListener("touchstart", (e) => {
+  touch();
+  for (const t of e.changedTouches) pins.set(t.identifier, { x: t.clientX, y: t.clientY });
+}, { passive: true });
+$("frame").addEventListener("touchmove", (e) => {
+  e.preventDefault();
+  if (e.touches.length === 1 && scale > 1) {
+    const t = e.touches[0];
+    const p = pins.get(t.identifier);
+    if (p) { tx += t.clientX - p.x; ty += t.clientY - p.y; applyTransform(); }
+    pins.set(t.identifier, { x: t.clientX, y: t.clientY });
+  } else if (e.touches.length === 2) {
+    const a = e.touches[0], b = e.touches[1];
+    const pa = pins.get(a.identifier), pb = pins.get(b.identifier);
+    if (pa && pb) {
+      const d0 = Math.hypot(pa.x - pb.x, pa.y - pb.y) || 1;
+      const d1 = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      const mx = (a.clientX + b.clientX) / 2, my = (a.clientY + b.clientY) / 2;
+      zoomBy(d1 / d0, mx, my);
+    }
+    pins.set(a.identifier, { x: a.clientX, y: a.clientY });
+    pins.set(b.identifier, { x: b.clientX, y: b.clientY });
+  }
+}, { passive: false });
+$("frame").addEventListener("touchend", (e) => {
+  for (const t of e.changedTouches) pins.delete(t.identifier);
+});
+$("frame").addEventListener("touchcancel", (e) => {
+  for (const t of e.changedTouches) pins.delete(t.identifier);
+});
+
+$("zin").onclick = () => { zoomBy(1.25); touch(); };
+$("zout").onclick = () => { zoomBy(1 / 1.25); touch(); };
+$("zfit").onclick = () => { resetView(); touch(); };
+window.addEventListener("resize", () => { if ($("stage").style.display === "flex") resetView(); });
+
 async function api(path, opts = {}) {
   const headers = Object.assign({ "ngrok-skip-browser-warning": "1" }, opts.headers || {});
   if (session) headers["X-Session"] = session;
   return fetch(base + path.replace(/^\//, ""), Object.assign({}, opts, { headers }));
 }
-
 async function doLogin() {
   const v = $("token").value.trim();
   if (!v || busy) return;
@@ -602,34 +731,25 @@ async function doLogin() {
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || String(r.status));
-    session = j.session;
-    $("token").value = "";
-    touch();
-    startPing();
-    refresh();
+    session = j.session; $("token").value = "";
+    touch(); startPing(); refresh();
   } catch (e) { setMsg("·", true); }
   finally { busy = false; $("go").disabled = false; }
 }
-
 function startPing() {
   if (pingTimer) clearInterval(pingTimer);
   pingTimer = setInterval(async () => {
     if (!session) return;
     if (Date.now() - lastAct >= IDLE_MS) { doLogout(true); return; }
-    try {
-      const r = await api("api/session");
-      if (r.status === 401) clearSession();
-    } catch (e) {}
+    try { const r = await api("api/session"); if (r.status === 401) clearSession(); } catch (e) {}
   }, 30000);
 }
-
 async function doLogout(silent) {
   try { if (session) await api("api/logout", { method: "POST" }); } catch (e) {}
   clearSession();
   if (!silent) setMsg("");
-  $("out").style.display = "none";
+  $("stage").style.display = "none";
 }
-
 async function doShot() {
   if (!session) return;
   if (Date.now() - lastAct >= IDLE_MS) { doLogout(true); return; }
@@ -646,22 +766,25 @@ async function doShot() {
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     blobUrl = URL.createObjectURL(blob);
     const name = "skrinshot_" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
-    $("img").src = blobUrl; $("dl").href = blobUrl; $("dl").download = name;
-    $("out").style.display = "flex";
+    const img = $("img");
+    img.onload = () => {
+      natW = img.naturalWidth; natH = img.naturalHeight;
+      $("stage").style.display = "flex";
+      resetView();
+    };
+    img.src = blobUrl;
+    $("dl").href = blobUrl; $("dl").download = name;
     touch();
   } catch (e) { setMsg("·", true); }
   finally { busy = false; refresh(); }
 }
-
 $("go").onclick = doLogin;
 $("logout").onclick = () => doLogout(false);
 $("shot").onclick = doShot;
 $("token").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doLogin(); } });
-
 ["pointerdown", "keydown", "touchstart"].forEach((ev) => {
   document.addEventListener(ev, () => { if (session) touch(); }, { passive: true });
 });
-
 document.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) || "";
   const typing = tag === "INPUT" || tag === "TEXTAREA";
@@ -670,11 +793,12 @@ document.addEventListener("keydown", (e) => {
   if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (session) doShot(); }
   if (e.key === "s" || e.key === "S") { e.preventDefault(); if (session) doShot(); }
   if (e.key === "l" || e.key === "L") { e.preventDefault(); if (session) doLogout(false); }
+  if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomBy(1.25); }
+  if (e.key === "-" || e.key === "_") { e.preventDefault(); zoomBy(1 / 1.25); }
+  if (e.key === "0") { e.preventDefault(); resetView(); }
 });
-
 if (session) { armIdle(); startPing(); }
 refresh();
-
 window.addEventListener("pagehide", () => {
   if (!session) return;
   try { navigator.sendBeacon(base + "api/logout?session=" + encodeURIComponent(session)); } catch (e) {}
