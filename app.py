@@ -482,7 +482,11 @@ PAGE = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#0a0a0a">
-<title>·</title>
+<title>Screenshot</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230a0a0a'/%3E%3Crect x='6' y='8' width='20' height='16' fill='none' stroke='%23e5e5e5' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23e5e5e5'/%3E%3C/svg%3E">
+<meta name="description" content="Remote screenshot">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Screenshot">
 <style>
 :root{color-scheme:dark}
 *{box-sizing:border-box;margin:0;padding:0}
