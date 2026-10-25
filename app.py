@@ -22,7 +22,7 @@ CONFIG_DIR = Path(os.environ.get("SCREENSHOT_CONFIG_DIR") or os.path.expanduser(
 TOKEN_FILE = CONFIG_DIR / "token"
 LEGACY_TOKEN_FILE = BASE / ".token"
 
-SESSION_TTL = int(os.environ.get("SESSION_TTL", "300"))  # 5 daqiqa
+SESSION_TTL = int(os.environ.get("SESSION_TTL", "300"))  # so'rovlar orasidagi faolsizlik limiti (sekund)
 JPEG_QUALITY = int(os.environ.get("JPEG_QUALITY", "72"))
 LIVE_INTERVAL = float(os.environ.get("LIVE_INTERVAL", "0.25"))  # live buffer yangilanishi
 MAX_SESSIONS = int(os.environ.get("MAX_SESSIONS", "5"))
@@ -498,8 +498,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
 #shot{width:100%;height:56px;background:var(--ok);color:#000;font-size:20px}
 #out{display:none;width:min(100%,1100px);flex-direction:column;gap:10px;align-items:center;margin-top:4px}
 #out img{width:100%;height:auto;border-radius:12px;border:1px solid var(--line);background:#0a0a0a}
-.bar{display:none;align-items:center;justify-content:space-between;gap:8px}
-#ttl{font-variant-numeric:tabular-nums;color:#666;font-size:13px;min-height:1em}
+.bar{display:none;justify-content:flex-end}
 #logout{background:transparent;border:1px solid var(--muted);color:#aaa;height:40px;padding:0 12px;border-radius:8px}
 #logout:active,#logout:hover{border-color:var(--danger);color:#fca5a5}
 #dl{background:#111;border:1px solid var(--line);color:#ddd;height:44px;padding:0 18px;border-radius:10px}
@@ -518,7 +517,6 @@ button:disabled{opacity:.35;cursor:not-allowed}
 </div>
 <div class="wrap" id="main" style="display:none">
   <div class="bar" id="bar">
-    <span id="ttl"></span>
     <button type="button" id="logout" title="Esc / L">✕</button>
   </div>
   <button type="button" id="shot" title="Space / Enter / S">●</button>
@@ -530,49 +528,69 @@ button:disabled{opacity:.35;cursor:not-allowed}
 </div>
 <script>
 const $ = (id) => document.getElementById(id);
-const SKEY = "shot_session_v2";
+const SKEY = "shot_session_v3";
+const IDLE_MS = 5 * 60 * 1000;
 const base = (location.pathname.replace(/\/+$/, "") || "") + "/";
-let session = null, expAt = 0, blobUrl = null, timer = null, pingTimer = null, busy = false;
+let session = null, blobUrl = null, idleTimer = null, pingTimer = null, busy = false, lastAct = 0;
+
 try {
   const raw = sessionStorage.getItem(SKEY);
   if (raw) {
     const o = JSON.parse(raw);
-    if (o && o.session && o.expAt > Date.now()) { session = o.session; expAt = o.expAt; }
+    if (o && o.session) {
+      session = o.session;
+      lastAct = o.lastAct || Date.now();
+      if (Date.now() - lastAct >= IDLE_MS) { session = null; lastAct = 0; sessionStorage.removeItem(SKEY); }
+    }
   }
 } catch (e) {}
+
 function setMsg(t, err) { $("msg").textContent = t || ""; $("msg").className = err ? "err" : ""; }
+
 function persist() {
   try {
-    if (session && expAt > Date.now()) sessionStorage.setItem(SKEY, JSON.stringify({ session, expAt }));
+    if (session) sessionStorage.setItem(SKEY, JSON.stringify({ session, lastAct }));
     else sessionStorage.removeItem(SKEY);
   } catch (e) {}
 }
+
+function touch() {
+  lastAct = Date.now();
+  persist();
+  if (session) armIdle();
+}
+
 function clearSession() {
-  session = null; expAt = 0; persist();
-  if (timer) { clearInterval(timer); timer = null; }
+  session = null; lastAct = 0; persist();
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
   if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
   refresh();
 }
-function remainingSec() { return Math.max(0, Math.floor((expAt - Date.now()) / 1000)); }
-function fmt(s) { const m = Math.floor(s / 60), r = s % 60; return m + ":" + String(r).padStart(2, "0"); }
+
+function armIdle() {
+  if (idleTimer) clearTimeout(idleTimer);
+  const left = IDLE_MS - (Date.now() - lastAct);
+  idleTimer = setTimeout(() => {
+    if (!session) return;
+    if (Date.now() - lastAct >= IDLE_MS) doLogout(true);
+    else armIdle();
+  }, Math.max(500, left));
+}
+
 function refresh() {
-  const ok = !!(session && remainingSec() > 0);
+  const ok = !!session;
   $("auth").style.display = ok ? "none" : "flex";
   $("main").style.display = ok ? "flex" : "none";
   $("bar").style.display = ok ? "flex" : "none";
   $("shot").disabled = !ok || busy;
-  $("ttl").textContent = ok ? fmt(remainingSec()) : "";
 }
-function tick() {
-  if (!session) return;
-  if (remainingSec() <= 0) { clearSession(); setMsg(""); return; }
-  refresh();
-}
+
 async function api(path, opts = {}) {
   const headers = Object.assign({ "ngrok-skip-browser-warning": "1" }, opts.headers || {});
   if (session) headers["X-Session"] = session;
   return fetch(base + path.replace(/^\//, ""), Object.assign({}, opts, { headers }));
 }
+
 async function doLogin() {
   const v = $("token").value.trim();
   if (!v || busy) return;
@@ -585,36 +603,38 @@ async function doLogin() {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || String(r.status));
     session = j.session;
-    expAt = Date.now() + (j.expires_in || 300) * 1000;
     $("token").value = "";
-    persist(); startTimers(); refresh();
+    touch();
+    startPing();
+    refresh();
   } catch (e) { setMsg("·", true); }
   finally { busy = false; $("go").disabled = false; }
 }
-function startTimers() {
-  if (timer) clearInterval(timer);
-  timer = setInterval(tick, 1000);
+
+function startPing() {
   if (pingTimer) clearInterval(pingTimer);
   pingTimer = setInterval(async () => {
     if (!session) return;
+    if (Date.now() - lastAct >= IDLE_MS) { doLogout(true); return; }
     try {
       const r = await api("api/session");
-      if (r.status === 401) { clearSession(); return; }
-      if (r.ok) {
-        const j = await r.json();
-        if (typeof j.remaining === "number") { expAt = Date.now() + j.remaining * 1000; persist(); }
-      }
+      if (r.status === 401) clearSession();
     } catch (e) {}
   }, 30000);
 }
-async function doLogout() {
-  try { await api("api/logout", { method: "POST" }); } catch (e) {}
-  clearSession(); setMsg(""); $("out").style.display = "none";
+
+async function doLogout(silent) {
+  try { if (session) await api("api/logout", { method: "POST" }); } catch (e) {}
+  clearSession();
+  if (!silent) setMsg("");
+  $("out").style.display = "none";
 }
+
 async function doShot() {
-  if (!session || remainingSec() <= 0) { clearSession(); return; }
+  if (!session) return;
+  if (Date.now() - lastAct >= IDLE_MS) { doLogout(true); return; }
   if (busy) return;
-  busy = true; $("shot").disabled = true; setMsg("");
+  busy = true; $("shot").disabled = true; setMsg(""); touch();
   try {
     const r = await api("api/screenshot", { method: "POST" });
     if (r.status === 401) { clearSession(); return; }
@@ -628,25 +648,33 @@ async function doShot() {
     const name = "skrinshot_" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
     $("img").src = blobUrl; $("dl").href = blobUrl; $("dl").download = name;
     $("out").style.display = "flex";
-    expAt = Date.now() + 300000; persist(); refresh();
+    touch();
   } catch (e) { setMsg("·", true); }
   finally { busy = false; refresh(); }
 }
+
 $("go").onclick = doLogin;
-$("logout").onclick = doLogout;
+$("logout").onclick = () => doLogout(false);
 $("shot").onclick = doShot;
 $("token").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doLogin(); } });
+
+["pointerdown", "keydown", "touchstart"].forEach((ev) => {
+  document.addEventListener(ev, () => { if (session) touch(); }, { passive: true });
+});
+
 document.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) || "";
   const typing = tag === "INPUT" || tag === "TEXTAREA";
-  if (e.key === "Escape") { e.preventDefault(); if (session) doLogout(); return; }
+  if (e.key === "Escape") { e.preventDefault(); if (session) doLogout(false); return; }
   if (typing) return;
   if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (session) doShot(); }
   if (e.key === "s" || e.key === "S") { e.preventDefault(); if (session) doShot(); }
-  if (e.key === "l" || e.key === "L") { e.preventDefault(); if (session) doLogout(); }
+  if (e.key === "l" || e.key === "L") { e.preventDefault(); if (session) doLogout(false); }
 });
-if (session && remainingSec() > 0) startTimers();
+
+if (session) { armIdle(); startPing(); }
 refresh();
+
 window.addEventListener("pagehide", () => {
   if (!session) return;
   try { navigator.sendBeacon(base + "api/logout?session=" + encodeURIComponent(session)); } catch (e) {}
