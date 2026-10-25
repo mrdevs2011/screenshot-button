@@ -4,48 +4,47 @@ Bitta tugma: bossangiz kompyuter ekrani skrinshot qilinib, brauzeringizga (telef
 
 ## Qanday ishlaydi
 
-- `app.py` kompyuterda kichik Flask server ishga tushiradi.
+- `app.py` kompyuterda kichik Flask server ishga tushiradi (`waitress` bilan).
 - Sahifadagi **Skrinshot qilish** tugmasi `POST /api/screenshot` ni chaqiradi.
 - Server `grim` (Wayland), `scrot` yoki `import` (X11) orqali ekranni oladi va PNG qaytaradi.
 - Skrinshot serverda saqlanmaydi: vaqtinchalik fayl o'qilgach darhol o'chiriladi.
+- Backend shu kompyuterning o'zida ishlaydi. GitHub'dan hech narsa tortilmaydi, repo o'chib ketsa ham servis ishlayveradi.
 
-## Ishga tushirish
-
-```bash
-pip install -r requirements.txt
-./run.sh
-```
-
-Server `http://127.0.0.1:8765` da ochiladi. Birinchi ishga tushishda token yaratiladi va `.token` fayliga yoziladi:
+## O'rnatish (har bir kompyuterda bir marta)
 
 ```bash
-cat .token
+./install.sh
 ```
 
-Brauzerda sahifani oching, tokenni bir marta kiriting va tugmani bosing.
+Bu skript `.venv` yaratadi, `~/.config/screenshot-button/` papkasini tayyorlaydi va `systemd --user` servisini yoqadi. Servis kompyuter qayta ishga tushganda o'zi ko'tariladi, o'chib qolsa qayta yonadi.
 
-## Boshqa qurilmadan ochish (telefon)
+Login qilmasdan ham ishlashi uchun bir marta: `sudo loginctl enable-linger $USER`.
+Skrinshot olish uchun esa grafik sessiya (Wayland/X11) ochiq bo'lishi kerak.
 
-Server faqat o'z kompyuteringizda (`127.0.0.1`) tinglaydi. Tashqaridan ochish uchun tunnel ishlating:
+## Sozlamalar: `~/.config/screenshot-button/`
+
+Kod papkasidan tashqarida, har bir kompyuterda o'zining nusxasi bor va GitHub'ga yuklanmaydi.
+
+| Fayl | Vazifasi |
+|---|---|
+| `config.env` | `HOST` (standart `127.0.0.1`), `PORT` (standart `8765`) |
+| `token` | kirish tokeni (birinchi ishga tushishda avtomatik yaratiladi, ruxsat 600) |
+
+Tokenni ko'rish: `cat ~/.config/screenshot-button/token`. Almashtirish uchun faylni o'chirib, servisni qayta ishga tushiring.
+Boshqa papka ishlatish uchun: `SCREENSHOT_CONFIG_DIR=/yo/l`.
+
+## Boshqarish
 
 ```bash
-cloudflared tunnel --url http://127.0.0.1:8765
+systemctl --user status screenshot-button
+systemctl --user restart screenshot-button
+journalctl --user -u screenshot-button -f
 ```
 
-yoki `ngrok http 8765`, yoki Tailscale. Chiqqan HTTPS manzilni telefonda oching.
+## Boshqa qurilmadan ochish
+
+Server faqat `127.0.0.1` da tinglaydi. Tashqaridan ochish uchun tunnel kerak (Tailscale, ngrok yoki cloudflared).
 
 ## Xavfsizlik
 
-Bu dastur ekraningizni ko'rsatadi, shuning uchun:
-
-- Token'ni hech kimga bermang va GitHub'ga yuklamang (`.token` `.gitignore` da).
-- Token'ni almashtirish uchun `.token` ni o'chirib, serverni qayta ishga tushiring.
-- Tunnelni faqat kerak bo'lganda yoqing.
-
-## Sozlamalar (muhit o'zgaruvchilari)
-
-| O'zgaruvchi | Standart | Izoh |
-|---|---|---|
-| `PORT` | `8765` | Server porti |
-| `HOST` | `127.0.0.1` | Tinglash manzili |
-| `SCREENSHOT_TOKEN` | avtomatik | O'z tokeningizni berish |
+Bu dastur ekraningizni ko'rsatadi: tokenni hech kimga bermang, tunnelni faqat kerakli qurilmalarga oching.

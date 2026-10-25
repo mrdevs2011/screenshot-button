@@ -15,7 +15,26 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request
 
 BASE = Path(__file__).resolve().parent
-TOKEN_FILE = BASE / ".token"
+# Kompyuterga xos sozlamalar va token kod papkasidan tashqarida turadi.
+CONFIG_DIR = Path(os.environ.get("SCREENSHOT_CONFIG_DIR") or Path.home() / ".config" / "screenshot-button")
+TOKEN_FILE = CONFIG_DIR / "token"
+LEGACY_TOKEN_FILE = BASE / ".token"
+
+
+def load_config_env() -> None:
+    """CONFIG_DIR/config.env dagi KEY=VALUE qatorlarini o'qiydi (muhit o'zgaruvchisi ustun turadi)."""
+    path = CONFIG_DIR / "config.env"
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_config_env()
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8765"))
 
@@ -28,9 +47,15 @@ def load_token() -> str:
         saved = TOKEN_FILE.read_text().strip()
         if saved:
             return saved
-    new = secrets.token_urlsafe(24)
-    TOKEN_FILE.write_text(new + "\n")
-    TOKEN_FILE.chmod(0o600)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    new = ""
+    if LEGACY_TOKEN_FILE.exists():  # eski joydan ko'chirish
+        new = LEGACY_TOKEN_FILE.read_text().strip()
+        LEGACY_TOKEN_FILE.unlink()
+    new = new or secrets.token_urlsafe(24)
+    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(new + "\n")
     return new
 
 
@@ -215,6 +240,11 @@ def index():
 
 
 if __name__ == "__main__":
-    print(f"Skrinshot serveri: http://{HOST}:{PORT}")
-    print(f"Token faylda: {TOKEN_FILE}")
-    app.run(host=HOST, port=PORT, threaded=True)
+    print(f"Skrinshot serveri: http://{HOST}:{PORT}", flush=True)
+    print(f"Token faylda: {TOKEN_FILE}", flush=True)
+    try:
+        from waitress import serve
+    except ImportError:
+        app.run(host=HOST, port=PORT, threaded=True)
+    else:
+        serve(app, host=HOST, port=PORT, threads=4)
