@@ -484,6 +484,8 @@ def screenshot():
 # ---------------- VIDEO REJIMI (5 soniyalik segmentlar) ----------------
 recorder = videorec.Recorder(display_env)
 atexit.register(recorder.stop)
+clip = videorec.ClipRecorder(display_env)
+atexit.register(clip.wipe)
 VIDEO_STALE = 30  # shuncha sekund list/segment so'rovi kelmasa, yozuv to'xtatiladi
 _video_thread: threading.Thread | None = None
 _video_thread_lock = threading.Lock()
@@ -567,6 +569,76 @@ def set_mode():
     elif not _video_wanted():
         recorder.stop()
     return jsonify(mode=mode, seg=videorec.SEG_SECONDS, keep=videorec.KEEP)
+
+
+_clip_thread = None
+_clip_thread_lock = threading.Lock()
+
+
+def _clip_watchdog() -> None:
+    """Yozuv chegarasidan oshsa yoki sessiya qolmasa, yozuvni o'zi to'xtatadi."""
+    while True:
+        time.sleep(3)
+        try:
+            if clip.running and (clip.elapsed > videorec.CLIP_MAX_SECONDS or _active_session_count() == 0):
+                clip.stop()
+        except Exception:
+            pass
+
+
+def _ensure_clip_watchdog() -> None:
+    global _clip_thread
+    with _clip_thread_lock:
+        if _clip_thread and _clip_thread.is_alive():
+            return
+        _clip_thread = threading.Thread(target=_clip_watchdog, name="clip-watchdog", daemon=True)
+        _clip_thread.start()
+
+
+@app.route("/api/rec", methods=["OPTIONS"])
+@app.route("/api/rec/chunk/<int:i>", methods=["OPTIONS"])
+def options_rec(i=None):
+    return ("", 204)
+
+
+@app.post("/api/rec")
+def rec_action():
+    if PROXY_MODE:
+        return proxy_to_remote("/api/rec", "POST")
+    sid, bad = _video_session()
+    if bad:
+        return bad
+    body = request.get_json(silent=True) or {}
+    act = body.get("action")
+    if act == "start":
+        if recorder.running or recorder.dir.exists():
+            recorder.stop()  # eski jonli-segment yozuvchi bilan ziddiyat bo'lmasin
+        _ensure_clip_watchdog()
+        if not clip.start():
+            return jsonify(error=clip.error or "Yozishni boshlab bo'lmadi."), 500
+        return jsonify(ok=True, max=videorec.CLIP_MAX_SECONDS)
+    if act == "stop":
+        info = clip.stop()
+        if not info:
+            return jsonify(error=clip.error or "Yozuv topilmadi."), 409
+        return jsonify(info)
+    if act == "discard":
+        clip.wipe()
+        return jsonify(ok=True)
+    return jsonify(error="Noma'lum amal."), 400
+
+
+@app.get("/api/rec/chunk/<int:i>")
+def rec_chunk(i):
+    if PROXY_MODE:
+        return proxy_to_remote(f"/api/rec/chunk/{i}", "GET")
+    sid, bad = _video_session()
+    if bad:
+        return bad
+    data = clip.read_chunk(i)
+    if data is None:
+        return jsonify(error="Bo'lak topilmadi."), 404
+    return Response(data, mimetype="application/octet-stream", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/video/list")
@@ -674,6 +746,11 @@ body{
 .frame:not(.vmode) video{display:none}
 .frame.vmode img{display:none}
 #tag{position:fixed;left:8px;top:calc(8px + env(safe-area-inset-top));font-size:11px;color:#8a8a8a;pointer-events:none;z-index:45;display:none}
+#clipbox{position:fixed;left:0;top:0;right:0;bottom:0;background:#000;z-index:30;display:none}
+#clipbox video{width:100%;height:100%;object-fit:contain;background:#000}
+#clipdl{position:fixed;right:8px;top:calc(8px + env(safe-area-inset-top));z-index:46;color:#e5e5e5;font-size:22px;line-height:1;text-decoration:none;background:rgba(0,0,0,.55);padding:8px 12px}
+#fab.rec{background:#dc2626;border-color:#dc2626;color:#fff}
+#tag.rec{color:#f87171;font-size:15px;font-weight:600}
 </style>
 </head>
 <body>
@@ -687,6 +764,7 @@ body{
 <button type="button" id="fab" title="Skrinshot">●</button>
 <div id="msg"></div>
 <div id="tag"></div>
+<div id="clipbox"><video id="clip" controls playsinline preload="auto"></video><a id="clipdl" title="Yuklab olish">⬇</a></div>
 <script>
 const $ = (id) => document.getElementById(id);
 const SKEY = "shot_session_v3";
@@ -778,6 +856,7 @@ function refresh() {
     else placeFab(fabX, fabY);
   }
   if (!ok) {
+    recReset(); clipClose();
     if (mode === "video") stopVideo();
     hasImg = false;
     $("stage").style.display = "none";
@@ -881,7 +960,7 @@ function onFabDown(e) {
     if (!fabMoved) {
       longFired = true;
       try { if (navigator.vibrate) navigator.vibrate(25); } catch (e) {}
-      toggleMode();
+      toggleRec();
     }
   }, 700);
   touch();
@@ -1001,7 +1080,11 @@ vids.forEach((v) => {
 vids[0].addEventListener("waiting", () => { if (useMse && mode === "video") vSetTag("···"); });
 vids[0].addEventListener("playing", () => { if (useMse && mode === "video") mUpdateTag(); });
 
-function onFabTap() { if (mode === "video") vGoLive(); else doShot(); }
+function onFabTap() {
+  if (recOn || recBusy) return;
+  if (clipOpen) { clipClose(); if (hasImg) $("stage").style.display = "block"; return; }
+  if (mode === "video") vGoLive(); else doShot();
+}
 
 async function toggleMode() {
   if (!session || busy) return;
@@ -1347,6 +1430,99 @@ $("frame").addEventListener("touchend", (e) => {
   if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) vStep(dx < 0 ? 1 : -1);
 }, { passive: true });
 
+/* ===== YOZIB OLISH: bosib turish = REC (sekund sanaydi, boshqa hech narsa ko'rinmaydi); yana bosib turish = stop va video keladi ===== */
+var recOn = false, recBusy = false, recT0 = 0, recTimer = null, clipUrl = null, clipOpen = false;
+function fmtT(s) { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2); }
+function recTick() { vSetTag("● REC " + fmtT((Date.now() - recT0) / 1000)); }
+function recUi(on) {
+  fab.classList.toggle("rec", on);
+  fab.textContent = on ? "■" : "●";
+  $("tag").classList.toggle("rec", on);
+}
+function recReset() {
+  if (recTimer) { clearInterval(recTimer); recTimer = null; }
+  if (recOn) { recOn = false; recUi(false); vSetTag(""); IDLE_MS = IDLE_SHOT; }
+}
+function clipClose() {
+  const v = $("clip");
+  try { v.pause(); } catch (e) {}
+  v.removeAttribute("src");
+  try { v.load(); } catch (e) {}
+  $("clipbox").style.display = "none";
+  if (clipUrl) { URL.revokeObjectURL(clipUrl); clipUrl = null; }
+  clipOpen = false;
+}
+function recPost(action) {
+  return api("api/rec", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: action }) });
+}
+async function toggleRec() {
+  if (!session || recBusy) return;
+  recBusy = true;
+  if (!recOn) {
+    clipClose();
+    recOn = true; recT0 = Date.now(); IDLE_MS = IDLE_VIDEO;
+    $("stage").style.display = "none";
+    recUi(true); recTick();
+    recTimer = setInterval(recTick, 500);
+    touch();
+    try {
+      const r = await recPost("start");
+      if (r.status === 401) { recReset(); clearSession(); return; }
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || String(r.status)); }
+    } catch (e) {
+      recReset();
+      if (hasImg) $("stage").style.display = "block";
+      setMsg("rec: " + String((e && e.message) || "xato").slice(0, 80));
+    } finally { recBusy = false; }
+    return;
+  }
+  if (recTimer) { clearInterval(recTimer); recTimer = null; }
+  recOn = false; recUi(false);
+  vSetTag("···"); touch();
+  try {
+    const r = await recPost("stop");
+    if (r.status === 401) { clearSession(); return; }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || String(r.status));
+    await clipFetch(j);
+  } catch (e) {
+    vSetTag("");
+    if (hasImg) $("stage").style.display = "block";
+    setMsg("rec: " + String((e && e.message) || "xato").slice(0, 80));
+  } finally { IDLE_MS = IDLE_SHOT; recBusy = false; touch(); }
+}
+async function clipFetch(j) {
+  const parts = new Array(j.n);
+  let next = 0, done = 0, failed = null;
+  async function worker() {
+    while (next < j.n && !failed) {
+      const i = next++;
+      let ok = false;
+      for (let k = 0; k < 3 && !ok; k++) {
+        try {
+          const r = await api("api/rec/chunk/" + i);
+          if (r.status === 401) { clearSession(); failed = new Error("sessiya tugadi"); return; }
+          if (!r.ok) throw new Error(String(r.status));
+          parts[i] = await r.arrayBuffer(); ok = true;
+        } catch (e) { if (k === 2) { failed = e; return; } }
+      }
+      done++; vSetTag("↓ " + Math.round(done * 100 / j.n) + "%");
+    }
+  }
+  vSetTag("↓ 0%");
+  await Promise.all(Array.from({ length: Math.min(4, j.n) }, worker));
+  if (failed) throw failed;
+  clipUrl = URL.createObjectURL(new Blob(parts, { type: "video/mp4" }));
+  $("clip").src = clipUrl;
+  $("clipdl").href = clipUrl;
+  $("clipdl").setAttribute("download", "rec_" + Date.now() + ".mp4");
+  $("clipbox").style.display = "block";
+  clipOpen = true;
+  vSetTag("");
+  try { await $("clip").play(); } catch (e) {}
+  recPost("discard").catch(() => {});
+}
+
 $("go").onclick = doLogin;
 $("token").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doLogin(); } });
 ["pointerdown", "keydown", "touchstart"].forEach((ev) => {
@@ -1360,7 +1536,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === " " || e.key === "Enter" || e.key === "s" || e.key === "S") {
     e.preventDefault(); if (session) onFabTap();
   }
-  if (e.key === "v" || e.key === "V") { e.preventDefault(); if (session) toggleMode(); }
+  if (e.key === "v" || e.key === "V") { e.preventDefault(); if (session) toggleRec(); }
   if (mode === "video" && e.key === "ArrowLeft") { e.preventDefault(); vStep(-1); }
   if (mode === "video" && e.key === "ArrowRight") { e.preventDefault(); vStep(1); }
   if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomBy(1.25); }

@@ -197,3 +197,200 @@ class Recorder:
                 pass
         self._logs = []
         shutil.rmtree(self.dir, ignore_errors=True)
+
+
+
+# ---------------- "Bosib turib yozib olish": bitta uzluksiz video ----------------
+CLIP_FPS = max(1, int(os.environ.get("CLIP_FPS", "12")))
+CLIP_WIDTH = max(320, int(os.environ.get("CLIP_WIDTH", "1280")))
+CLIP_CRF = os.environ.get("CLIP_CRF", "30")
+CLIP_MAXRATE = os.environ.get("CLIP_MAXRATE", "800k")
+CLIP_MAX_SECONDS = max(10, int(os.environ.get("CLIP_MAX_SECONDS", "600")))
+CLIP_CHUNK = 1_000_000  # brauzerga shuncha baytlik bo'laklab beriladi (Vercel javob limiti uchun)
+
+
+class ClipRecorder:
+    """start() -> yozadi (RAM, /dev/shm); stop() -> tugatadi va bo'laklab o'qishga tayyorlaydi."""
+
+    def __init__(self, env_fn):
+        self._env_fn = env_fn
+        self.dir = Path(os.environ.get("CLIP_DIR") or f"/dev/shm/screenshot-button-clip-{os.getuid()}")
+        self.file = self.dir / "clip.mp4"
+        self._lock = threading.RLock()
+        self._wf = None
+        self._ff = None
+        self._logs = []
+        self._t0 = 0.0
+        self._info = None
+        self.error = None
+
+    @property
+    def running(self) -> bool:
+        wf, ff = self._wf, self._ff
+        return bool(wf and ff and wf.poll() is None and ff.poll() is None)
+
+    @property
+    def elapsed(self) -> float:
+        return (time.time() - self._t0) if self.running else 0.0
+
+    def _tail_log(self) -> str:
+        out = []
+        for name in ("wf.log", "ff.log"):
+            try:
+                txt = (self.dir / name).read_text(errors="replace").strip()
+            except OSError:
+                continue
+            if txt:
+                out.append(f"{name}: {txt[-160:]}")
+        return " | ".join(out)
+
+    def _kill_locked(self) -> None:
+        wf, ff = self._wf, self._ff
+        self._wf = self._ff = None
+        for p, sig in ((wf, signal.SIGINT), (ff, signal.SIGTERM)):
+            if p is not None and p.poll() is None:
+                try:
+                    p.send_signal(sig)
+                except OSError:
+                    pass
+        for p in (wf, ff):
+            if p is None:
+                continue
+            try:
+                p.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                try:
+                    p.kill()
+                    p.wait(timeout=2)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+        for f in self._logs:
+            try:
+                f.close()
+            except OSError:
+                pass
+        self._logs = []
+
+    def start(self) -> bool:
+        with self._lock:
+            if self.running:
+                return True
+            self._kill_locked()
+            shutil.rmtree(self.dir, ignore_errors=True)
+            self._info = None
+            if not shutil.which("wf-recorder") or not shutil.which("ffmpeg"):
+                self.error = "wf-recorder yoki ffmpeg o'rnatilmagan"
+                return False
+            env = self._env_fn()
+            if not env.get("WAYLAND_DISPLAY"):
+                self.error = "Wayland sessiyasi topilmadi"
+                return False
+            wf_cmd = ["wf-recorder", "-y", "-D", "-r", str(CLIP_FPS), "-c", "rawvideo", "-x", "yuv420p", "-m", "nut"]
+            if OUTPUT:
+                wf_cmd += ["-o", OUTPUT]
+            wf_cmd += ["-f", "/dev/stdout"]
+            ff_cmd = [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                "-f", "nut", "-i", "pipe:0",
+                "-vf", f"scale=w=min({CLIP_WIDTH}\\,iw):h=-2",
+                "-an",
+                "-c:v", "libx264", "-preset", "veryfast",
+                "-crf", CLIP_CRF, "-maxrate", CLIP_MAXRATE, "-bufsize", "2M",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                str(self.file),
+            ]
+            try:
+                self.dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+                wf_log = open(self.dir / "wf.log", "wb")
+                ff_log = open(self.dir / "ff.log", "wb")
+                self._logs = [wf_log, ff_log]
+                self._wf = subprocess.Popen(
+                    wf_cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=wf_log,
+                    env=env, start_new_session=True,
+                )
+                self._ff = subprocess.Popen(
+                    ff_cmd, stdin=self._wf.stdout, stdout=subprocess.DEVNULL, stderr=ff_log,
+                    env=env, start_new_session=True,
+                )
+                self._wf.stdout.close()
+            except OSError as e:
+                self._kill_locked()
+                self.error = f"ishga tushmadi: {e}"
+                return False
+            time.sleep(0.6)
+            if not self.running:
+                self.error = self._tail_log() or "yozuv jarayoni darhol to'xtadi"
+                self._kill_locked()
+                return False
+            self._t0 = time.time()
+            self.error = None
+            return True
+
+    def stop(self):
+        """Yozuvni to'g'ri yopadi. {size, n, chunk, dur} yoki None qaytaradi."""
+        with self._lock:
+            wf, ff = self._wf, self._ff
+            if wf is None and ff is None:
+                return self._info
+            dur = time.time() - self._t0
+            if wf is not None and wf.poll() is None:
+                try:
+                    wf.send_signal(signal.SIGINT)
+                except OSError:
+                    pass
+            if ff is not None:
+                try:
+                    ff.wait(timeout=25)  # EOF -> ffmpeg faylni yopadi (faststart)
+                except subprocess.TimeoutExpired:
+                    try:
+                        ff.terminate()
+                        ff.wait(timeout=3)
+                    except (OSError, subprocess.TimeoutExpired):
+                        try:
+                            ff.kill()
+                        except OSError:
+                            pass
+            if wf is not None:
+                try:
+                    wf.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    try:
+                        wf.kill()
+                    except OSError:
+                        pass
+            tail = self._tail_log()
+            self._wf = self._ff = None
+            for f in self._logs:
+                try:
+                    f.close()
+                except OSError:
+                    pass
+            self._logs = []
+            try:
+                size = self.file.stat().st_size
+            except OSError:
+                size = 0
+            if size < 1000:
+                self.error = tail or "Video bo'sh chiqdi"
+                self._info = None
+                return None
+            self._info = {"size": size, "n": (size + CLIP_CHUNK - 1) // CLIP_CHUNK, "chunk": CLIP_CHUNK, "dur": round(dur, 1)}
+            return self._info
+
+    def read_chunk(self, i: int):
+        info = self._info
+        if not info or i < 0 or i >= info["n"]:
+            return None
+        try:
+            with open(self.file, "rb") as f:
+                f.seek(i * CLIP_CHUNK)
+                return f.read(CLIP_CHUNK)
+        except OSError:
+            return None
+
+    def wipe(self) -> None:
+        with self._lock:
+            self._kill_locked()
+            self._info = None
+            shutil.rmtree(self.dir, ignore_errors=True)

@@ -52,3 +52,11 @@ Token: cat ~/.config/screenshot-button/token
 ## Maxfiylik
 
 Yozuv faqat video rejimi yoqilgan va brauzer segment so'rab turgan paytda ishlaydi (30 soniya so'rov kelmasa to'xtaydi). Videolar diskka yozilmaydi.
+
+## Yozib olish (bosib turib)
+
+- Tugmani uzoq bosish (~0.7s) = yozuv boshlanadi: faqat qizil tugma va `● REC 0:07` sekund hisoblagichi ko'rinadi.
+- Yana uzoq bosish = yozuv to'xtaydi, video bo'laklab (1 MB) yuklab olinadi va o'ynaydi; yuqori o'ngdagi ⬇ bilan saqlanadi.
+- Tez bosish: video ochiq bo'lsa yopadi, bo'lmasa skrinshot oladi.
+- Sozlamalar: `CLIP_WIDTH` (1280), `CLIP_FPS` (12), `CLIP_CRF` (30), `CLIP_MAXRATE` (800k), `CLIP_MAX_SECONDS` (600).
+- Yozuv RAM'da (`/dev/shm`), yuklab olingach o'chiriladi. Eski jonli segment rejimi kodda qolgan, lekin tugmaga ulanmagan.
