@@ -9,6 +9,10 @@ UNIT_DIR="$HOME/.config/systemd/user"
 python3 -m venv "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
+for tool in wf-recorder ffmpeg; do
+  command -v "$tool" >/dev/null 2>&1 || echo "ESLATMA: video rejimi uchun '$tool' o'rnatilgan bo'lishi kerak."
+done
+
 mkdir -p "$CONFIG_DIR" "$UNIT_DIR"
 chmod 700 "$CONFIG_DIR"
 if [ ! -f "$CONFIG_DIR/config.env" ]; then

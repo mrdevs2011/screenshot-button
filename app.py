@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Screenshot Button — xavfsiz sessiya (5 daqiqa), tez JPEG + live buffer."""
+import atexit
 import glob
 import hashlib
 import hmac
@@ -49,6 +50,8 @@ PORT = int(os.environ.get("PORT", "8765"))
 ON_VERCEL = bool(os.environ.get("VERCEL"))
 REMOTE_URL = os.environ.get("REMOTE_URL", "").strip().rstrip("/")
 PROXY_MODE = ON_VERCEL or bool(REMOTE_URL)
+
+import videorec  # noqa: E402  (config.env o'qilgandan keyin)
 
 
 def load_token() -> str:
@@ -264,7 +267,7 @@ def capture_jpeg() -> tuple[bytes | None, str | None, str | None]:
 
 def _live_worker() -> None:
     while not _live_stop.wait(LIVE_INTERVAL):
-        if _active_session_count() == 0:
+        if _active_session_count() == 0 or recorder.running:
             continue
         with _capture_lock:
             data, tool, err = capture_jpeg()
@@ -322,7 +325,7 @@ def secure(resp):
     resp.headers["Content-Security-Policy"] = (
         "default-src 'none'; img-src 'self' blob: data:; "
         "style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
-        "connect-src 'self'; base-uri 'none'; form-action 'none"
+        "connect-src 'self'; media-src 'self' blob:; base-uri 'none'; form-action 'none'"
     )
     origin = request.headers.get("Origin", "")
     # faqat o'zimiz va ma'lum frontendlar — ochiq * yo'q
@@ -346,7 +349,10 @@ def secure(resp):
 @app.route("/api/logout", methods=["OPTIONS"])
 @app.route("/api/screenshot", methods=["OPTIONS"])
 @app.route("/api/session", methods=["OPTIONS"])
-def options_ok():
+@app.route("/api/mode", methods=["OPTIONS"])
+@app.route("/api/video/list", methods=["OPTIONS"])
+@app.route("/api/video/seg/<int:seq>", methods=["OPTIONS"])
+def options_ok(seq=None):
     return ("", 204)
 
 
@@ -475,6 +481,129 @@ def screenshot():
     )
 
 
+# ---------------- VIDEO REJIMI (5 soniyalik segmentlar) ----------------
+recorder = videorec.Recorder(display_env)
+atexit.register(recorder.stop)
+VIDEO_STALE = 30  # shuncha sekund list/segment so'rovi kelmasa, yozuv to'xtatiladi
+_video_thread: threading.Thread | None = None
+_video_thread_lock = threading.Lock()
+
+
+def _video_wanted() -> bool:
+    now = time.time()
+    with _sessions_lock:
+        _prune_sessions()
+        return any(
+            m.get("mode") == "video" and now - m.get("video_seen", 0) < VIDEO_STALE
+            for m in _sessions.values()
+        )
+
+
+def _video_worker() -> None:
+    while True:
+        time.sleep(1.0)
+        try:
+            if _video_wanted():
+                if not recorder.running:
+                    recorder.start()
+                recorder.prune()
+            elif recorder.running or recorder.dir.exists():
+                recorder.stop()
+        except Exception as e:  # noqa: BLE001
+            print(f"video worker xatosi: {e}", flush=True)
+
+
+def _ensure_video_worker() -> None:
+    global _video_thread
+    with _video_thread_lock:
+        if _video_thread and _video_thread.is_alive():
+            return
+        _video_thread = threading.Thread(target=_video_worker, name="video-recorder", daemon=True)
+        _video_thread.start()
+
+
+def _video_session():
+    """(sid, None) yoki (None, xato javobi)."""
+    sid = request.headers.get("X-Session", "").strip()
+    if not _valid_session(sid, _client_ip()):
+        return None, (jsonify(error="Sessiya yaroqsiz yoki muddati tugagan. Qayta kiring."), 401)
+    return sid, None
+
+
+def _video_seen(sid: str) -> str:
+    """Sessiyaning rejimini qaytaradi; video bo'lsa 'ko'rilgan vaqt'ni yangilaydi."""
+    with _sessions_lock:
+        meta = _sessions.get(sid)
+        if meta is None:
+            return "shot"
+        mode = meta.get("mode", "shot")
+        if mode == "video":
+            meta["video_seen"] = time.time()
+        return mode
+
+
+@app.post("/api/mode")
+def set_mode():
+    if PROXY_MODE:
+        return proxy_to_remote("/api/mode", "POST")
+    sid, bad = _video_session()
+    if bad:
+        return bad
+    body = request.get_json(silent=True) or {}
+    mode = "video" if body.get("mode") == "video" else "shot"
+    with _sessions_lock:
+        meta = _sessions.get(sid)
+        if meta is not None:
+            meta["mode"] = mode
+            meta["video_seen"] = time.time()
+    if mode == "video":
+        _ensure_video_worker()
+        if not recorder.start():
+            with _sessions_lock:
+                meta = _sessions.get(sid)
+                if meta is not None:
+                    meta["mode"] = "shot"
+            return jsonify(error=recorder.error or "Video yozishni boshlab bo'lmadi."), 500
+    elif not _video_wanted():
+        recorder.stop()
+    return jsonify(mode=mode, seg=videorec.SEG_SECONDS, keep=videorec.KEEP)
+
+
+@app.get("/api/video/list")
+def video_list():
+    if PROXY_MODE:
+        return proxy_to_remote("/api/video/list", "GET")
+    sid, bad = _video_session()
+    if bad:
+        return bad
+    mode = _video_seen(sid)
+    if mode != "video":
+        return jsonify(mode=mode, running=False, segments=[])
+    running = recorder.running
+    return jsonify(
+        mode=mode,
+        running=running,
+        error=None if running else recorder.error,
+        segments=recorder.segments(),
+        seg=videorec.SEG_SECONDS,
+    )
+
+
+@app.get("/api/video/seg/<int:seq>")
+def video_seg(seq):
+    if PROXY_MODE:
+        return proxy_to_remote(f"/api/video/seg/{seq}", "GET")
+    sid, bad = _video_session()
+    if bad:
+        return bad
+    if _video_seen(sid) != "video":
+        return jsonify(error="Video rejimi yoqilmagan."), 409
+    data = recorder.read(seq)
+    if data is None:
+        return jsonify(error="Segment topilmadi."), 404
+    return Response(data, mimetype="video/mp4")
+
+
 PAGE = r"""<!doctype html>
 <html lang="uz">
 <head>
@@ -540,6 +669,11 @@ body{
   position:fixed;left:0;right:0;bottom:calc(12px + env(safe-area-inset-bottom));
   text-align:center;font-size:11px;color:#f87171;pointer-events:none;z-index:45;
 }
+.frame video{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;pointer-events:none}
+.frame video.on{opacity:1}
+.frame:not(.vmode) video{display:none}
+.frame.vmode img{display:none}
+#tag{position:fixed;left:8px;top:calc(8px + env(safe-area-inset-top));font-size:11px;color:#8a8a8a;pointer-events:none;z-index:45;display:none}
 </style>
 </head>
 <body>
@@ -549,25 +683,28 @@ body{
     <button type="button" id="go" title="Enter">→</button>
   </div>
 </div>
-<div id="stage"><div class="frame" id="frame"><img id="img" alt=""></div></div>
+<div id="stage"><div class="frame" id="frame"><img id="img" alt=""><video id="va" muted playsinline preload="auto" disablepictureinpicture></video><video id="vb" muted playsinline preload="auto" disablepictureinpicture></video></div></div>
 <button type="button" id="fab" title="Skrinshot">●</button>
 <div id="msg"></div>
+<div id="tag"></div>
 <script>
 const $ = (id) => document.getElementById(id);
 const SKEY = "shot_session_v3";
 const POSKEY = "shot_fab_pos";
-const IDLE_MS = 5 * 60 * 1000;
+const IDLE_SHOT = 5 * 60 * 1000, IDLE_VIDEO = 30 * 60 * 1000;
+let IDLE_MS = IDLE_SHOT;
 const base = (location.pathname.replace(/\/+$/, "") || "") + "/";
 let session = null, blobUrl = null, idleTimer = null, pingTimer = null, busy = false, lastAct = 0;
 let scale = 1, tx = 0, ty = 0, natW = 0, natH = 0, fit = 1;
 let dragging = false, lx = 0, ly = 0;
 let pins = new Map();
 let hasImg = false;
+let mode = "shot";
 
 /* FAB drag */
 const fab = $("fab");
 let fabX = 0, fabY = 0, fabDrag = false, fabMoved = false, fabSx = 0, fabSy = 0, fabOx = 0, fabOy = 0;
-let longT = null;
+let longT = null, longFired = false;
 
 try {
   const raw = sessionStorage.getItem(SKEY);
@@ -641,6 +778,7 @@ function refresh() {
     else placeFab(fabX, fabY);
   }
   if (!ok) {
+    if (mode === "video") stopVideo();
     hasImg = false;
     $("stage").style.display = "none";
   }
@@ -737,10 +875,15 @@ function onFabDown(e) {
   fabSx = pt.clientX; fabSy = pt.clientY;
   fabOx = fabX; fabOy = fabY;
   fab.classList.add("moving");
+  longFired = false;
   longT = setTimeout(() => {
     longT = null;
-    if (!fabMoved) doLogout(false);
-  }, 900);
+    if (!fabMoved) {
+      longFired = true;
+      try { if (navigator.vibrate) navigator.vibrate(25); } catch (e) {}
+      toggleMode();
+    }
+  }, 700);
   touch();
 }
 function onFabMove(e) {
@@ -759,7 +902,8 @@ function onFabUp(e) {
   fab.classList.remove("moving");
   if (longT) { clearTimeout(longT); longT = null; }
   if (fabMoved) saveFabPos();
-  else if (!busy) doShot();
+  else if (longFired) longFired = false;
+  else if (!busy) onFabTap();
 }
 fab.addEventListener("pointerdown", (e) => {
   if (e.pointerType === "touch") return;
@@ -841,6 +985,226 @@ async function doShot() {
   } catch (e) { setMsg("·"); }
   finally { busy = false; refresh(); }
 }
+/* ===== VIDEO REJIMI: 5 soniyalik segmentlar, ikki pleyer (uzluksiz) ===== */
+const vids = [$("va"), $("vb")];
+let vSeg = 5, vTimer = null, vList = [], vFront = 0, vCur = null, vPre = null;
+let vWaiting = false, vPlaying = false, vPreBusy = false, vStartedAt = 0;
+const vCache = new Map(), vBusy = new Set();
+vids.forEach((v) => {
+  v.muted = true;
+  v.addEventListener("ended", () => {
+    if (v === vids[vFront] && mode === "video") { vWaiting = true; vAdvance(); }
+  });
+});
+
+function onFabTap() { if (mode === "video") vGoLive(); else doShot(); }
+
+async function toggleMode() {
+  if (!session || busy) return;
+  const to = mode === "video" ? "shot" : "video";
+  busy = true; refresh();
+  try {
+    const r = await api("api/mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: to }),
+    });
+    if (r.status === 401) { clearSession(); return; }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || String(r.status));
+    if (to === "video") startVideo(j.seg || 5); else stopVideo();
+    touch();
+  } catch (e) { setMsg("video: " + String((e && e.message) || "xato").slice(0, 80)); }
+  finally { busy = false; refresh(); }
+}
+
+function vSetTag(t) {
+  const el = $("tag");
+  el.textContent = t || "";
+  el.style.display = t ? "block" : "none";
+}
+function vUpdateTag() {
+  if (vCur == null || !vList.length || vWaiting) { vSetTag("···"); return; }
+  const last = vList[vList.length - 1];
+  vSetTag("-" + ((last - vCur + 1) * vSeg) + "s");
+}
+
+function startVideo(seg) {
+  mode = "video"; vSeg = seg || 5; IDLE_MS = IDLE_VIDEO;
+  vList = []; vCur = null; vPre = null; vWaiting = false; vPlaying = false; vPreBusy = false;
+  vStartedAt = Date.now();
+  vids.forEach((v) => {
+    v.classList.remove("on");
+    try { v.pause(); } catch (e) {}
+    v.removeAttribute("src");
+    try { v.load(); } catch (e) {}
+  });
+  $("frame").classList.add("vmode");
+  $("stage").style.display = "block";
+  fab.textContent = "▶"; fab.title = "Video";
+  vSetTag("···");
+  if (vTimer) clearInterval(vTimer);
+  vTimer = setInterval(vPoll, 1000);
+  vPoll();
+  armIdle();
+}
+
+function stopVideo() {
+  if (vTimer) { clearInterval(vTimer); vTimer = null; }
+  vids.forEach((v) => {
+    try { v.pause(); } catch (e) {}
+    v.classList.remove("on");
+    v.removeAttribute("src");
+    try { v.load(); } catch (e) {}
+  });
+  vCache.forEach((u) => URL.revokeObjectURL(u));
+  vCache.clear(); vBusy.clear();
+  vList = []; vCur = null; vPre = null; vWaiting = false; vPlaying = false; vPreBusy = false;
+  $("frame").classList.remove("vmode");
+  vSetTag("");
+  mode = "shot"; IDLE_MS = IDLE_SHOT;
+  fab.textContent = "●"; fab.title = "Skrinshot";
+  if (hasImg) { $("stage").style.display = "block"; resetView(); }
+  else $("stage").style.display = "none";
+}
+
+async function vPoll() {
+  if (!session || mode !== "video") return;
+  let j;
+  try {
+    const r = await api("api/video/list");
+    if (r.status === 401) { clearSession(); return; }
+    j = await r.json();
+  } catch (e) { return; }
+  if (mode !== "video") return;
+  vList = (j.segments || []).map((s) => s.seq);
+  if (j.error && !j.running) setMsg("video: " + String(j.error).slice(0, 80));
+  vTick();
+}
+
+function vTick() {
+  if (!vList.length) { if (vCur == null) vSetTag("···"); return; }
+  const first = vList[0], last = vList[vList.length - 1];
+  if (vCur == null) {
+    // boshlash: keyingi segment ham tayyor bo'lsa (yoki 12 soniya kutilgan bo'lsa)
+    const start = Math.max(first, last - 1);
+    if (start < last || Date.now() - vStartedAt > 12000) vPlay(start);
+    return;
+  }
+  if (vCur < first) { vPlay(first); return; }  // bufer ortda qoldi — eng eskisiga o'tamiz
+  vPreload();
+  if (vWaiting) vAdvance();
+  vUpdateTag();
+}
+
+async function vFetch(seq) {
+  if (vCache.has(seq)) return vCache.get(seq);
+  if (vBusy.has(seq)) return null;
+  vBusy.add(seq);
+  try {
+    const r = await api("api/video/seg/" + seq);
+    if (r.status === 401) { clearSession(); return null; }
+    if (!r.ok) return null;
+    const blob = await r.blob();
+    if (mode !== "video") return null;
+    const u = URL.createObjectURL(blob);
+    vCache.set(seq, u);
+    return u;
+  } catch (e) { return null; }
+  finally { vBusy.delete(seq); }
+}
+
+function vReady(v) {
+  return new Promise((res) => {
+    if (v.readyState >= 2) { res(true); return; }
+    const onL = () => done(true);
+    const done = (ok) => { v.removeEventListener("loadeddata", onL); clearTimeout(t); res(ok); };
+    const t = setTimeout(() => done(false), 6000);
+    v.addEventListener("loadeddata", onL);
+  });
+}
+
+async function vPreload() {
+  if (vCur == null || vPreBusy || vPlaying || mode !== "video") return;
+  const nxt = vList.find((s) => s > vCur);
+  if (nxt == null || vPre === nxt) return;
+  vPreBusy = true;
+  try {
+    const u = await vFetch(nxt);
+    if (!u || mode !== "video" || vPlaying || vPre === nxt) return;
+    const back = vids[1 - vFront];
+    back.pause(); back.classList.remove("on");
+    back.src = u; back.load(); vPre = nxt;
+  } catch (e) {}
+  finally { vPreBusy = false; }
+}
+
+async function vPlay(seq) {
+  if (vPlaying || mode !== "video") return;
+  vPlaying = true;
+  try {
+    const back = vids[1 - vFront], front = vids[vFront];
+    if (vPre !== seq) {
+      const u = await vFetch(seq);
+      if (!u || mode !== "video") return;
+      back.pause(); back.src = u; back.load(); vPre = seq;
+    }
+    const ok = await vReady(back);
+    if (!ok || mode !== "video") { vPre = null; return; }
+    await back.play();
+    back.classList.add("on");
+    front.classList.remove("on");
+    try { front.pause(); } catch (e) {}
+    vFront = 1 - vFront; vCur = seq; vPre = null; vWaiting = false;
+    vCleanup(); vUpdateTag();
+  } catch (e) { vPre = null; }
+  finally { vPlaying = false; vPreload(); }
+}
+
+function vAdvance() {
+  if (vCur == null || mode !== "video") return;
+  const nxt = vList.find((s) => s > vCur);
+  if (nxt == null) { vWaiting = true; vSetTag("···"); return; }
+  vPlay(nxt);
+}
+
+function vCleanup() {
+  if (vCur == null) return;
+  for (const [s, u] of vCache) {
+    if ((s < vCur - 2 || s > vCur + 4) && s !== vPre) { URL.revokeObjectURL(u); vCache.delete(s); }
+  }
+}
+
+function vStep(d) {
+  if (mode !== "video" || !vList.length) return;
+  touch();
+  let i = vCur == null ? -1 : vList.indexOf(vCur);
+  if (i < 0) i = vList.findIndex((s) => s >= (vCur == null ? 0 : vCur));
+  if (i < 0) i = vList.length - 1;
+  const j = Math.min(vList.length - 1, Math.max(0, i + d));
+  vWaiting = false;
+  vPlay(vList[j]);
+}
+
+function vGoLive() {
+  if (mode !== "video" || !vList.length) return;
+  touch();
+  vWaiting = false;
+  vPlay(vList[Math.max(0, vList.length - 2)]);
+}
+
+let swX = null, swY = null;
+$("frame").addEventListener("touchstart", (e) => {
+  if (e.touches.length === 1) { swX = e.touches[0].clientX; swY = e.touches[0].clientY; } else swX = null;
+}, { passive: true });
+$("frame").addEventListener("touchend", (e) => {
+  if (mode !== "video" || swX == null) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - swX, dy = t.clientY - swY;
+  swX = null;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) vStep(dx < 0 ? 1 : -1);
+}, { passive: true });
+
 $("go").onclick = doLogin;
 $("token").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); doLogin(); } });
 ["pointerdown", "keydown", "touchstart"].forEach((ev) => {
@@ -852,8 +1216,11 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { e.preventDefault(); if (session) doLogout(false); return; }
   if (typing) return;
   if (e.key === " " || e.key === "Enter" || e.key === "s" || e.key === "S") {
-    e.preventDefault(); if (session) doShot();
+    e.preventDefault(); if (session) onFabTap();
   }
+  if (e.key === "v" || e.key === "V") { e.preventDefault(); if (session) toggleMode(); }
+  if (mode === "video" && e.key === "ArrowLeft") { e.preventDefault(); vStep(-1); }
+  if (mode === "video" && e.key === "ArrowRight") { e.preventDefault(); vStep(1); }
   if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomBy(1.25); }
   if (e.key === "-" || e.key === "_") { e.preventDefault(); zoomBy(1 / 1.25); }
   if (e.key === "0") { e.preventDefault(); resetView(); }
