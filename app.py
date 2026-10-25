@@ -487,25 +487,57 @@ PAGE = r"""<!doctype html>
 :root{color-scheme:dark}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:#0a0a0a;color:#e5e5e5;font:13px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;-webkit-tap-highlight-color:transparent}
-body{min-height:100dvh;display:flex;flex-direction:column;align-items:center;padding:max(10px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(10px,env(safe-area-inset-left));gap:8px}
-.wrap{width:100%;max-width:420px;display:flex;flex-direction:column;gap:6px}
-.row{display:flex;gap:6px}
-input{flex:1;min-width:0;height:36px;padding:0 10px;background:#111;color:#e5e5e5;border:1px solid #333;border-radius:0;outline:none;font:inherit}
+body{
+  min-height:100dvh;
+  display:flex;flex-direction:column;
+  padding:0;
+  padding-top:env(safe-area-inset-top);
+  padding-bottom:env(safe-area-inset-bottom);
+  padding-left:env(safe-area-inset-left);
+  padding-right:env(safe-area-inset-right);
+}
+header{
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  padding:8px 10px;
+  border-bottom:1px solid #222;
+  background:#0a0a0a;
+  flex-shrink:0;
+}
+input{
+  flex:1;min-width:80px;max-width:200px;
+  height:36px;width:36px;
+  padding:0 10px;
+  background:#111;color:#e5e5e5;
+  border:1px solid #333;border-radius:0;
+  outline:none;font:inherit;
+}
 input:focus{border-color:#666}
-button,.btn{height:36px;padding:0 12px;border:1px solid #333;border-radius:0;background:#111;color:#e5e5e5;font:inherit;cursor:pointer;user-select:none;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+button,.btn{
+  width:36px;height:36px;min-width:36px;padding:0;
+  border:1px solid #333;border-radius:0;
+  background:#111;color:#e5e5e5;
+  font:inherit;font-size:14px;font-weight:600;
+  cursor:pointer;user-select:none;
+  display:inline-flex;align-items:center;justify-content:center;
+  text-decoration:none;flex-shrink:0;
+}
 button:disabled{opacity:.35;cursor:not-allowed}
-#go{background:#e5e5e5;color:#0a0a0a;border-color:#e5e5e5;min-width:36px;font-weight:600}
-#shot{width:100%;height:48px;background:#e5e5e5;color:#0a0a0a;border-color:#e5e5e5;font-size:15px;font-weight:700;letter-spacing:.08em}
-#shot:active{background:#fff}
-.bar{display:none;justify-content:flex-end}
-#logout{height:28px;padding:0 8px;color:#888;border-color:#2a2a2a;background:transparent;font-size:12px}
+#go,#shot{background:#e5e5e5;color:#0a0a0a;border-color:#e5e5e5}
+#shot{font-size:16px}
+#logout{color:#888;border-color:#2a2a2a;background:transparent}
 #logout:hover{color:#f87171;border-color:#7f1d1d}
-#msg{min-height:1em;font-size:11px;color:#555;text-align:center}
-#msg.err{color:#f87171}
-#stage{display:none;width:100%;max-width:min(100%,960px);flex-direction:column;gap:6px;flex:1;min-height:0}
+#msg{min-height:0;font-size:11px;color:#555;text-align:center;padding:0 8px}
+#msg.err{color:#f87171;padding:4px 8px}
+main{
+  flex:1;min-height:0;
+  display:flex;flex-direction:column;
+  padding:8px 10px 10px;
+  gap:6px;
+}
+#stage{display:none;flex:1;min-height:0;flex-direction:column}
 .frame{
+  flex:1;min-height:120px;
   width:100%;
-  height:min(58dvh,520px);
   border:1px solid #333;
   background:#000;
   overflow:hidden;
@@ -515,63 +547,47 @@ button:disabled{opacity:.35;cursor:not-allowed}
 }
 .frame.drag{cursor:grabbing}
 .frame img{
-  position:absolute;
-  left:50%;top:50%;
+  position:absolute;left:50%;top:50%;
   transform-origin:center center;
   max-width:none;
-  user-select:none;
-  -webkit-user-drag:none;
-  pointer-events:none;
+  user-select:none;-webkit-user-drag:none;pointer-events:none;
 }
-.zbar{display:flex;gap:6px;justify-content:center}
-.zbar button{height:28px;min-width:36px;padding:0 10px;font-size:14px;color:#ccc}
+.spacer{flex:1;min-width:4px}
 @media (min-width:768px){
-  body{padding:16px}
-  .wrap{max-width:480px}
-  #shot{height:52px;font-size:16px}
-  .frame{height:min(62dvh,640px)}
-}
-@media (min-width:1024px){
-  .wrap{max-width:520px}
-  .frame{height:min(68dvh,720px);max-width:960px}
-  #stage{max-width:960px}
+  header{padding:10px 14px;gap:8px}
+  button,.btn,input{height:40px}
+  button,.btn{width:40px;min-width:40px}
+  input{max-width:240px}
+  main{padding:12px 14px 14px}
 }
 </style>
 </head>
 <body>
-<div class="wrap" id="auth">
-  <div class="row">
-    <input id="token" type="password" placeholder="parol" autocomplete="current-password" enterkeyhint="go">
-    <button type="button" id="go" title="Enter">→</button>
-  </div>
-</div>
-<div class="wrap" id="main" style="display:none">
-  <div class="bar" id="bar">
-    <button type="button" id="logout" title="Esc / L">✕</button>
-  </div>
-  <button type="button" id="shot" title="Space / Enter / S">●</button>
-</div>
+<header>
+  <input id="token" type="password" placeholder="parol" autocomplete="current-password" enterkeyhint="go" style="display:none">
+  <button type="button" id="go" title="Enter" style="display:none">→</button>
+  <button type="button" id="shot" title="Space / Enter / S" disabled>●</button>
+  <button type="button" id="zout" title="-" disabled>−</button>
+  <button type="button" id="zfit" title="fit" disabled>⊡</button>
+  <button type="button" id="zin" title="+" disabled>+</button>
+  <a class="btn" id="dl" download title="Download" style="pointer-events:none;opacity:.35">↓</a>
+  <span class="spacer"></span>
+  <button type="button" id="logout" title="Esc / L" style="display:none">✕</button>
+</header>
 <div id="msg"></div>
-<div id="stage">
-  <div class="frame" id="frame"><img id="img" alt=""></div>
-  <div class="zbar">
-    <button type="button" id="zout" title="-">−</button>
-    <button type="button" id="zfit" title="fit">⊡</button>
-    <button type="button" id="zin" title="+">+</button>
-    <a class="btn" id="dl" download title="Download">↓</a>
-  </div>
-</div>
+<main>
+  <div id="stage"><div class="frame" id="frame"><img id="img" alt=""></div></div>
+</main>
 <script>
 const $ = (id) => document.getElementById(id);
 const SKEY = "shot_session_v3";
 const IDLE_MS = 5 * 60 * 1000;
 const base = (location.pathname.replace(/\/+$/, "") || "") + "/";
 let session = null, blobUrl = null, idleTimer = null, pingTimer = null, busy = false, lastAct = 0;
-
-/* zoom state: scale 1 = fit entire image in frame */
 let scale = 1, tx = 0, ty = 0, natW = 0, natH = 0, fit = 1;
 let dragging = false, lx = 0, ly = 0;
 let pins = new Map();
+let hasImg = false;
 
 try {
   const raw = sessionStorage.getItem(SKEY);
@@ -613,10 +629,21 @@ function armIdle() {
 }
 function refresh() {
   const ok = !!session;
-  $("auth").style.display = ok ? "none" : "flex";
-  $("main").style.display = ok ? "flex" : "none";
-  $("bar").style.display = ok ? "flex" : "none";
+  $("token").style.display = ok ? "none" : "";
+  $("go").style.display = ok ? "none" : "";
+  $("logout").style.display = ok ? "" : "none";
   $("shot").disabled = !ok || busy;
+  $("zout").disabled = !hasImg;
+  $("zfit").disabled = !hasImg;
+  $("zin").disabled = !hasImg;
+  const dl = $("dl");
+  if (hasImg && blobUrl) {
+    dl.style.pointerEvents = "";
+    dl.style.opacity = "1";
+  } else {
+    dl.style.pointerEvents = "none";
+    dl.style.opacity = ".35";
+  }
 }
 
 function calcFit() {
@@ -637,6 +664,7 @@ function resetView() {
   applyTransform();
 }
 function zoomBy(factor, cx, cy) {
+  if (!hasImg) return;
   const fr = $("frame");
   const rect = fr.getBoundingClientRect();
   const px = (cx != null ? cx : rect.left + rect.width / 2) - rect.left - rect.width / 2;
@@ -657,7 +685,6 @@ $("frame").addEventListener("wheel", (e) => {
   zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX, e.clientY);
   touch();
 }, { passive: false });
-
 $("frame").addEventListener("pointerdown", (e) => {
   if (e.pointerType === "touch") return;
   dragging = true; lx = e.clientX; ly = e.clientY;
@@ -672,13 +699,9 @@ $("frame").addEventListener("pointermove", (e) => {
   lx = e.clientX; ly = e.clientY;
   applyTransform();
 });
-function endDrag(e) {
-  dragging = false;
-  $("frame").classList.remove("drag");
-}
+function endDrag() { dragging = false; $("frame").classList.remove("drag"); }
 $("frame").addEventListener("pointerup", endDrag);
 $("frame").addEventListener("pointercancel", endDrag);
-
 $("frame").addEventListener("touchstart", (e) => {
   touch();
   for (const t of e.changedTouches) pins.set(t.identifier, { x: t.clientX, y: t.clientY });
@@ -696,24 +719,19 @@ $("frame").addEventListener("touchmove", (e) => {
     if (pa && pb) {
       const d0 = Math.hypot(pa.x - pb.x, pa.y - pb.y) || 1;
       const d1 = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-      const mx = (a.clientX + b.clientX) / 2, my = (a.clientY + b.clientY) / 2;
-      zoomBy(d1 / d0, mx, my);
+      zoomBy(d1 / d0, (a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2);
     }
     pins.set(a.identifier, { x: a.clientX, y: a.clientY });
     pins.set(b.identifier, { x: b.clientX, y: b.clientY });
   }
 }, { passive: false });
-$("frame").addEventListener("touchend", (e) => {
-  for (const t of e.changedTouches) pins.delete(t.identifier);
-});
-$("frame").addEventListener("touchcancel", (e) => {
-  for (const t of e.changedTouches) pins.delete(t.identifier);
-});
+$("frame").addEventListener("touchend", (e) => { for (const t of e.changedTouches) pins.delete(t.identifier); });
+$("frame").addEventListener("touchcancel", (e) => { for (const t of e.changedTouches) pins.delete(t.identifier); });
 
 $("zin").onclick = () => { zoomBy(1.25); touch(); };
 $("zout").onclick = () => { zoomBy(1 / 1.25); touch(); };
 $("zfit").onclick = () => { resetView(); touch(); };
-window.addEventListener("resize", () => { if ($("stage").style.display === "flex") resetView(); });
+window.addEventListener("resize", () => { if (hasImg) resetView(); });
 
 async function api(path, opts = {}) {
   const headers = Object.assign({ "ngrok-skip-browser-warning": "1" }, opts.headers || {});
@@ -748,7 +766,9 @@ async function doLogout(silent) {
   try { if (session) await api("api/logout", { method: "POST" }); } catch (e) {}
   clearSession();
   if (!silent) setMsg("");
+  hasImg = false;
   $("stage").style.display = "none";
+  refresh();
 }
 async function doShot() {
   if (!session) return;
@@ -769,8 +789,10 @@ async function doShot() {
     const img = $("img");
     img.onload = () => {
       natW = img.naturalWidth; natH = img.naturalHeight;
+      hasImg = true;
       $("stage").style.display = "flex";
       resetView();
+      refresh();
     };
     img.src = blobUrl;
     $("dl").href = blobUrl; $("dl").download = name;
